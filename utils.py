@@ -71,7 +71,7 @@ def load_dual_problem(args):
 
 
 def load_data(args):
-    input_train = torch.load('./data/' + args.dataset + '/train/input_train.pt')[:3]  #todo
+    input_train = torch.load('./data/' + args.dataset + '/train/input_train.pt')
 
     if args.self_supervised:
         extension = 'self_'
