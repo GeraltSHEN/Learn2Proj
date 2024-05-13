@@ -22,10 +22,10 @@ class PrimalLP:
         self._truncate_idx = truncate_idx
 
         self._free_W = torch.eye(A.shape[1])[free_idx[0]:free_idx[1]].to(self._device)
-        self._s_W = torch.cat((torch.eye(A.shape[1])[:free_idx[0]], torch.eye(A.shape[1])[:free_idx[0]]), dim=0).to(self._device)
+        self._s_W = torch.cat((torch.eye(A.shape[1])[:free_idx[0]], torch.eye(A.shape[1])[free_idx[1]+1:]), dim=0).to(self._device)
 
         self._mutable_W = torch.eye(A.shape[1])[truncate_idx[0]:truncate_idx[1]].to(self._device)
-        self._immutable_W = torch.cat((torch.eye(A.shape[1])[:free_idx[0]], torch.eye(A.shape[1])[:free_idx[0]]), dim=0).to(self._device)
+        self._immutable_W = torch.cat((torch.eye(A.shape[1])[:truncate_idx[0]], torch.eye(A.shape[1])[truncate_idx[1]+1:]), dim=0).to(self._device)
 
     @property
     def c(self):
@@ -90,6 +90,11 @@ class PrimalLP:
     def obj_fn(self, x, in_val=None):
         return x @ self.c
 
+    def optimality_gap(self, x, target, in_val=None):
+        predicted_obj = x @ self.c
+        optimality_gap = (predicted_obj - target) / target
+        return optimality_gap
+
     def eq_residual(self, x, b):
         return x @ self.A.t() - b
 
@@ -120,10 +125,10 @@ class DualLP:
         self._truncate_idx = truncate_idx
 
         self._free_W = torch.eye(A.shape[1])[free_idx[0]:free_idx[1]].to(self._device)
-        self._s_W = torch.cat((torch.eye(A.shape[1])[:free_idx[0]], torch.eye(A.shape[1])[:free_idx[0]]), dim=0).to(self._device)
+        self._s_W = torch.cat((torch.eye(A.shape[1])[:free_idx[0]], torch.eye(A.shape[1])[free_idx[1]+1:]), dim=0).to(self._device)
 
         self._mutable_W = torch.eye(A.shape[1])[truncate_idx[0]:truncate_idx[1]].to(self._device)
-        self._immutable_W = torch.cat((torch.eye(A.shape[1])[:free_idx[0]], torch.eye(A.shape[1])[:free_idx[0]]), dim=0).to(self._device)
+        self._immutable_W = torch.cat((torch.eye(A.shape[1])[:truncate_idx[0]], torch.eye(A.shape[1])[truncate_idx[1]+1:]), dim=0).to(self._device)
 
     @property
     def b(self):
@@ -189,6 +194,12 @@ class DualLP:
     def obj_fn(y, c):
         # y, b_primal are passed in, b_primal = -c in maximize_y c^T y and c in minimize_x - c^T x
         return torch.sum(y * c, dim=-1)
+
+    @staticmethod
+    def optimality_gap(y, target, c=None):
+        predicted_obj = torch.sum(y * c, dim=-1)
+        optimality_gap = (predicted_obj + target) / target
+        return optimality_gap
 
     def eq_residual(self, y, in_val=None):
         return y @ self.A.t() - self.b

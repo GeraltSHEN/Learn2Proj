@@ -111,7 +111,7 @@ def main(args):
     elif args.job == 'sanity_check':
         sanity_check(args)
     elif args.job == 'make_datasets':
-        pass
+        sanity_check(args)
     else:
         pass
         # data = load_data(args)

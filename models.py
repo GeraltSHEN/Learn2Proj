@@ -224,5 +224,9 @@ class VanillaNN(nn.Module):
         for layer in self.layers[:-1]:
             b_primal = F.relu(layer(b_primal))
         out = self.layers[-1](b_primal)
-        return out, out
+
+        if self.training:
+            return out, out
+        else:
+            return out, out, 0
 

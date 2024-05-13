@@ -114,6 +114,10 @@ def Learning(args, data, problem, model, optimizer):
         if epoch % args.resultSaveFreq == 0:
             with open(f'./logs/{args.model_id}_TrainingStats.dict', 'wb') as f:
                 pickle.dump(stats, f)
+        # save the final stats
+        if epoch == args.epochs - 1:
+            with open(f'./logs/{args.model_id}_TrainingStats.dict', 'wb') as f:
+                pickle.dump(stats, f)
 
 
 def optimizer_step(model, optimizer, inputs, targets, args, data, problem, epoch_stats):
@@ -139,8 +143,7 @@ def validate_model(model, args, data, problem, epoch_stats):
         start_time = time.time()
         z_star, z1, proj_num = model(inputs)
         val_time = time.time() - start_time
-        predicted_obj = problem.obj_fn(z_star, inputs)
-        optimality_gap = (predicted_obj - targets) / targets
+        optimality_gap = problem.optimality_gap(z_star, targets, inputs)
         gap_mean, gap_worst = get_gap_mean_worst(optimality_gap)
 
         # print(f'shape of gap_mean: {gap_mean.shape}, shape of gap_worst: {gap_worst.shape}')
@@ -207,8 +210,7 @@ def evaluate_model(args, data, problem):
         start_time = time.time()
         z_star, z1, proj_num = model(inputs)
         test_time = time.time() - start_time
-        predicted_obj = problem.obj_fn(z_star, inputs)
-        optimality_gap = (predicted_obj - targets) / targets
+        optimality_gap = problem.optimality_gap(z_star, targets, inputs)
         gap_mean, gap_worst = get_gap_mean_worst(optimality_gap)
 
         dict_agg(test_stats, 'test_time', np.array([test_time]))
