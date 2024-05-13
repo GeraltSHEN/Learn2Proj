@@ -7,10 +7,10 @@ def method_default_args(dataset):
         defaults['truncate_idx'] = (2,40)
         defaults['primal_const_num'] = 152
         defaults['primal_var_num'] = 161
-        defaults['primal_fx_idx'] = (0,48)  #todo: the first 49 vars are fx. i.e., (0, 48)
+        defaults['primal_fx_idx'] = (0,48)
         defaults['dual_const_num'] = 49
         defaults['dual_var_num'] = 152
-        defaults['dual_fx_idx'] = (0,39)  #todo: the first 40 vars are fx. i.e., (0, 39)
+        defaults['dual_fx_idx'] = (0,39)
 
         # hidden layers related parameters
         defaults['primal_hidden_dim'] = 64
@@ -19,8 +19,8 @@ def method_default_args(dataset):
         defaults['dual_hidden_num'] = 1
 
         # ALM and penalty related parameters
-        defaults['penalty_g'] = 50
-        defaults['penalty_h'] = 50
+        defaults['penalty_g'] = 50000
+        defaults['penalty_h'] = 50000
 
         # training related parameters
         defaults['loss_type'] = 'obj'

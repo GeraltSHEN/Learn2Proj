@@ -242,8 +242,8 @@ def calculate_scores(args, data):
     target_val = torch.load(
         './data/' + args.dataset + '/' + args.test_val_train + '/' + extension + 'target_' + args.test_val_train + '.pt')
 
-    scores = {'max_obj_true': target_val.max(),
-              'min_obj_true': target_val.min(),
+    scores = {'max_obj_true': target_val.max().item(),
+              'min_obj_true': target_val.min().item(),
               'test_optimality_gap_mean': np.mean(test_stats['test_gap_mean']),
               'test_optimality_gap_worst': np.max(test_stats['test_gap_worst']),
               'test_eq_mean': np.mean(test_stats['test_eq_mean']),
