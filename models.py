@@ -49,10 +49,16 @@ class ProjectionIter(torch.autograd.Function):
 
                 curr_iter = curr_iter + 1
                 eq_residual = z @ A.t() - b
-                worst_of_worst = torch.norm(eq_residual, float('inf')).item()
+                # worst_of_worst = torch.norm(eq_residual, float('inf')).item()
+                # if worst_of_worst <= f_tol:
+                #     break
+                eq_rhs = b  # another stopping criterion
+                eq_mean = torch.norm(eq_residual, p=2, dim=-1).mean()  # another stopping criterion
+                eq_scale_mean = 1 + torch.norm(eq_rhs, p=2, dim=-1).mean()  # another stopping criterion
+                stopping_criterion = eq_mean / eq_scale_mean  # another stopping criterion
+                if stopping_criterion <= f_tol:  # another stopping criterion
+                    break  # another stopping criterion
 
-                if worst_of_worst <= f_tol:
-                    break
             z_star = z
             ctx.save_for_backward(J_accum)
         return z_star
@@ -123,9 +129,16 @@ class PrimalNN(nn.Module):
 
                     curr_iter = curr_iter + 1
                     eq_residual = z @ self.A.t() - b_0
-                    worst_of_worst = torch.norm(eq_residual, float('inf')).item()
-                    if worst_of_worst <= self.f_tol:
-                        break
+                    # worst_of_worst = torch.norm(eq_residual, float('inf')).item()
+                    # if worst_of_worst <= self.f_tol:
+                    #     break
+                    eq_rhs = b_0  # another stopping criterion
+                    eq_mean = torch.norm(eq_residual, p=2, dim=-1).mean()  # another stopping criterion
+                    eq_scale_mean = 1 + torch.norm(eq_rhs, p=2, dim=-1).mean()  # another stopping criterion
+                    stopping_criterion = eq_mean / eq_scale_mean  # another stopping criterion
+                    if stopping_criterion <= self.f_tol:  # another stopping criterion
+                        break  # another stopping criterion
+
                 z_star = z
 
                 if self.report_projection:
@@ -152,7 +165,7 @@ class DualNN(nn.Module):
         self.layers.append(nn.Linear(hidden_dim, output_dim))
         # feasibility layers
         self.A = A.requires_grad_(False)
-        self.b = b.requires_grad_(False)
+        self.b = b(None).requires_grad_(False)
         self.WzProj = WzProj.requires_grad_(False)
         self.WbProj = WbProj.requires_grad_(False)
 
@@ -188,13 +201,16 @@ class DualNN(nn.Module):
 
                     curr_iter = curr_iter + 1
                     eq_residual = z @ self.A.t() - self.b
-                    worst_of_worst = torch.norm(eq_residual, float('inf')).item()
+                    # worst_of_worst = torch.norm(eq_residual, float('inf')).item()
+                    # if worst_of_worst <= self.f_tol:
+                    #     break
+                    eq_rhs = self.b  # another stopping criterion
+                    eq_mean = torch.norm(eq_residual, p=2, dim=-1).mean()  # another stopping criterion
+                    eq_scale_mean = 1 + torch.norm(eq_rhs, p=2, dim=-1).mean()  # another stopping criterion
+                    stopping_criterion = eq_mean / eq_scale_mean  # another stopping criterion
+                    if stopping_criterion <= self.f_tol:  # another stopping criterion
+                        break  # another stopping criterion
 
-                    equality = torch.norm(self.b -
-                                          torch.matmul(z, self.A.t()),
-                                          float('inf')).item()
-                    if worst_of_worst <= self.f_tol:
-                        break
                 z_star = z
 
                 if self.report_projection:
@@ -229,4 +245,158 @@ class VanillaNN(nn.Module):
             return out, out
         else:
             return out, out, 0
+
+
+class DualLearn2Proj(nn.Module):
+    def __init__(self, input_dim, hidden_dim, hidden_num, output_dim,
+                 proj_hidden_dim, proj_hidden_num,
+                 truncate_idx, free_idx, A, b, WzProj, WbProj,
+                 max_iter, f_tol, report_projection=True):
+        super(DualLearn2Proj, self).__init__()
+
+        self.output_dim = output_dim
+        self.truncate_idx = truncate_idx
+        self.free_num = free_idx[1] + 1  # dataset has been modified to have free variables at the beginning.
+
+        # optimality layers
+        self.optimality_layers = nn.ModuleList()
+        self.optimality_layers.append(nn.Linear(input_dim, hidden_dim))
+        for _ in range(hidden_num - 1):
+            self.optimality_layers.append(nn.Linear(hidden_dim, hidden_dim))
+        self.optimality_layers.append(nn.Linear(hidden_dim, output_dim))
+
+        # (pseudo) - projection layers
+        self.projection_layers = nn.ModuleList()
+        self.projection_layers.append(nn.Linear(output_dim, proj_hidden_dim))
+        for _ in range(proj_hidden_num - 1):
+            self.projection_layers.append(nn.Linear(proj_hidden_dim, proj_hidden_dim))
+        self.projection_layers.append(nn.Linear(proj_hidden_dim, output_dim))
+
+        # feasibility layers
+        self.A = A.requires_grad_(False)
+        self.b = b(None).requires_grad_(False)
+        self.WzProj = WzProj.requires_grad_(False)
+        self.WbProj = WbProj.requires_grad_(False)
+
+        self.max_iter = max_iter
+        self.f_tol = f_tol
+
+        self.report_projection = report_projection
+
+    def fix_projection_weights(self):
+        for param in self.projection_layers.parameters():
+            param.requires_grad = False
+
+    def unfix_projection_weights(self):
+        for param in self.projection_layers.parameters():
+            param.requires_grad = True
+
+    def forward(self, inputs, phase='opt+proj+feas'):
+        if phase == 'opt+feas':
+            # phase 1: create projection dataset
+            # inputs are b_primal
+            self.fix_projection_weights()
+            inputs = inputs[:, self.truncate_idx[0]:self.truncate_idx[1]]
+            for layer in self.optimality_layers[:-1]:
+                inputs = F.relu(layer(inputs))
+            z1 = self.optimality_layers[-1](inputs)
+
+            with torch.no_grad():
+                z = z1
+                curr_iter = 1
+
+                Bias_Proj = torch.matmul(self.b, self.WbProj.t())
+                while curr_iter <= self.max_iter:
+                    z = Bias_Proj + torch.matmul(z, self.WzProj.t())
+
+                    u, v = torch.split(z, [self.free_num, self.output_dim - self.free_num], dim=-1)
+                    v = F.relu(v)
+                    z = torch.cat((u, v), dim=-1)
+
+                    curr_iter = curr_iter + 1
+                    eq_residual = z @ self.A.t() - self.b
+                    # worst_of_worst = torch.norm(eq_residual, float('inf')).item()
+                    # if worst_of_worst <= self.f_tol:
+                    #     break
+                    eq_rhs = self.b  # another stopping criterion
+                    eq_mean = torch.norm(eq_residual, p=2, dim=-1).mean()  # another stopping criterion
+                    eq_scale_mean = 1 + torch.norm(eq_rhs, p=2, dim=-1).mean()  # another stopping criterion
+                    stopping_criterion = eq_mean / eq_scale_mean  # another stopping criterion
+                    if stopping_criterion <= self.f_tol:  # another stopping criterion
+                        break  # another stopping criterion
+
+                z_star = z
+                if self.report_projection:
+                    return z_star, z1, curr_iter
+                else:
+                    return z_star, z1
+
+        elif phase == 'proj':
+            # phase 2: learn projection
+            # inputs are z1
+            self.unfix_projection_weights()
+            for layer in self.projection_layers[:-1]:
+                inputs = F.relu(layer(inputs))
+            pseudo_z_star = self.projection_layers[-1](inputs)
+            u, v = torch.split(pseudo_z_star, [self.free_num, self.output_dim - self.free_num], dim=-1)
+            v = F.relu(v)
+            pseudo_z_star = torch.cat((u, v), dim=-1)
+            return pseudo_z_star
+
+        elif phase == 'opt+proj+feas':
+            # phase 3: learn optimality
+            # inputs are b_primal
+            self.fix_projection_weights()
+            inputs = inputs[:, self.truncate_idx[0]:self.truncate_idx[1]]
+            for layer in self.optimality_layers[:-1]:
+                inputs = F.relu(layer(inputs))
+            z1 = self.optimality_layers[-1](inputs)
+            for layer in self.projection_layers[:-1]:
+                z1 = F.relu(layer(z1))
+            pseudo_z_star = self.projection_layers[-1](z1)
+            u, v = torch.split(pseudo_z_star, [self.free_num, self.output_dim - self.free_num], dim=-1)
+            v = F.relu(v)
+            pseudo_z_star = torch.cat((u, v), dim=-1)
+
+            if self.training:
+                projections = ProjectionIter.apply
+                z_star = projections(pseudo_z_star, self.A, self.WzProj, self.WbProj, self.b,
+                                     self.max_iter, self.f_tol, self.output_dim, self.free_num)
+                return z_star, pseudo_z_star
+            else:
+                with torch.no_grad():
+                    z = pseudo_z_star
+                    curr_iter = 1
+
+                    Bias_Proj = torch.matmul(self.b, self.WbProj.t())
+                    while curr_iter <= self.max_iter:
+                        z = Bias_Proj + torch.matmul(z, self.WzProj.t())
+
+                        u, v = torch.split(z, [self.free_num, self.output_dim - self.free_num], dim=-1)
+                        v = F.relu(v)
+                        z = torch.cat((u, v), dim=-1)
+
+                        curr_iter = curr_iter + 1
+                        eq_residual = z @ self.A.t() - self.b
+                        # worst_of_worst = torch.norm(eq_residual, float('inf')).item()
+                        # if worst_of_worst <= self.f_tol:
+                        #     break
+                        eq_rhs = self.b  # another stopping criterion
+                        eq_mean = torch.norm(eq_residual, p=2, dim=-1).mean()  # another stopping criterion
+                        eq_scale_mean = 1 + torch.norm(eq_rhs, p=2, dim=-1).mean()  # another stopping criterion
+                        stopping_criterion = eq_mean / eq_scale_mean  # another stopping criterion
+                        if stopping_criterion <= self.f_tol:  # another stopping criterion
+                            break  # another stopping criterion
+
+                    z_star = z
+                    if self.report_projection:
+                        return z_star, pseudo_z_star, curr_iter
+                    else:
+                        return z_star, pseudo_z_star
+
+        else:
+            raise ValueError('Invalid phase')
+
+
+
 

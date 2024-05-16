@@ -1,5 +1,6 @@
 from utils import *
 import torch
+import torch.nn as nn
 import csv
 import numpy as np
 from torch.utils.data import DataLoader, TensorDataset
@@ -38,7 +39,6 @@ def run_training(args, data, problem):
     print(f'----- {args.model_id} in {args.dataset} dataset -----')
     print('#params:', sum(p.numel() for p in model.parameters()))
     optimizer = get_optimizer(args, model)
-
     print('loss_type: ', args.loss_type)
 
     if args.data_generator:
@@ -48,7 +48,11 @@ def run_training(args, data, problem):
 
     start_time = time.time()
     ##############################################################################################################
-    Learning(args, data, problem, model, optimizer)
+    if args.learn2proj:
+        proj_optimizer = get_optimizer(args, model)
+        Learning_learn2proj(args, data, problem, model, optimizer, proj_optimizer)
+    else:
+        Learning(args, data, problem, model, optimizer)
     ##############################################################################################################
     end_time = time.time()
     training_time = end_time - start_time
@@ -87,6 +91,9 @@ def Learning(args, data, problem, model, optimizer):
         print('eq mean: {: .5f}, eq max: {: .5f}, eq worst: {: .5f}'.format(np.mean(epoch_stats['train_eq_mean']),
                                                                              np.mean(epoch_stats['train_eq_max']),
                                                                              np.max(epoch_stats['train_eq_worst'])))
+        print('seq mean: {: .5f}, seq max: {: .5f}, seq worst: {: .5f}'.format(np.mean(epoch_stats['train_scaled_eq_mean']),
+                                                                             np.mean(epoch_stats['train_scaled_eq_max']),
+                                                                             np.max(epoch_stats['train_scaled_eq_worst'])))
         print('ineq mean: {: .5f}, ineq max: {: .5f}, ineq worst: {: .5f}'.format(np.mean(epoch_stats['train_ineq_mean']),
                                                                                   np.mean(epoch_stats['train_ineq_max']),
                                                                                   np.max(epoch_stats['train_ineq_worst'])))
@@ -95,6 +102,9 @@ def Learning(args, data, problem, model, optimizer):
         print('eq mean: {: .5f}, eq max: {: .5f}, eq worst: {: .5f}'.format(np.mean(epoch_stats['val_eq_mean']),
                                                                             np.mean(epoch_stats['val_eq_max']),
                                                                             np.max(epoch_stats['val_eq_worst'])))
+        print('seq mean: {: .5f}, seq max: {: .5f}, seq worst: {: .5f}'.format(np.mean(epoch_stats['val_scaled_eq_mean']),
+                                                                            np.mean(epoch_stats['val_scaled_eq_max']),
+                                                                            np.max(epoch_stats['val_scaled_eq_worst'])))
         print('ineq mean: {: .5f}, ineq max: {: .5f}, ineq worst: {: .5f}'.format(np.mean(epoch_stats['val_ineq_mean']),
                                                                                   np.mean(epoch_stats['val_ineq_max']),
                                                                                   np.max(epoch_stats['val_ineq_worst'])))
@@ -124,7 +134,7 @@ def optimizer_step(model, optimizer, inputs, targets, args, data, problem, epoch
     start_time = time.time()
     optimizer.zero_grad()
     z_star, z1 = model(inputs)
-    train_loss = get_loss(z_star, z1, targets, inputs, problem, args, args.loss_type)  #todo, item()?
+    train_loss = get_loss(z_star, z1, targets, inputs, problem, args, args.loss_type)
     train_loss.backward()
     optimizer.step()
     train_time = time.time() - start_time
@@ -179,13 +189,19 @@ def dict_agg(stats, key, value, op='concat'):
 def violation_agg(z_star, inputs, problem, epoch_stats, prefix):
     with torch.no_grad():
         eq_residual = problem.eq_residual(z_star, inputs)
+        eq_rhs = problem.b(inputs)
         ineq_residual = problem.ineq_residual(z_star)
+
         eq_mean, eq_max, eq_worst = get_violation_mean_max_worst(eq_residual)
+        scaled_eq_mean, scaled_eq_max, scaled_eq_worst = get_scaled_violation_mean_max_worst(eq_residual, eq_rhs)
         ineq_mean, ineq_max, ineq_worst = get_violation_mean_max_worst(ineq_residual)
 
         dict_agg(epoch_stats, f'{prefix}_eq_mean', eq_mean.detach().cpu().numpy())
         dict_agg(epoch_stats, f'{prefix}_eq_max', eq_max.detach().cpu().numpy())
         dict_agg(epoch_stats, f'{prefix}_eq_worst', eq_worst.detach().cpu().numpy())
+        dict_agg(epoch_stats, f'{prefix}_scaled_eq_mean', scaled_eq_mean.detach().cpu().numpy())
+        dict_agg(epoch_stats, f'{prefix}_scaled_eq_max', scaled_eq_max.detach().cpu().numpy())
+        dict_agg(epoch_stats, f'{prefix}_scaled_eq_worst', scaled_eq_worst.detach().cpu().numpy())
         dict_agg(epoch_stats, f'{prefix}_ineq_mean', ineq_mean.detach().cpu().numpy())
         dict_agg(epoch_stats, f'{prefix}_ineq_max', ineq_max.detach().cpu().numpy())
         dict_agg(epoch_stats, f'{prefix}_ineq_worst', ineq_worst.detach().cpu().numpy())
@@ -251,6 +267,9 @@ def calculate_scores(args, data):
               'test_eq_mean': np.mean(test_stats['test_eq_mean']),
               'test_eq_max': np.mean(test_stats['test_eq_max']),
               'test_eq_worst': np.max(test_stats['test_eq_worst']),
+              'test_scaled_eq_mean': np.mean(test_stats['test_scaled_eq_mean']),
+              'test_scaled_eq_max': np.mean(test_stats['test_scaled_eq_max']),
+              'test_scaled_eq_worst': np.max(test_stats['test_scaled_eq_worst']),
               'test_ineq_mean': np.mean(test_stats['test_ineq_mean']),
               'test_ineq_max': np.mean(test_stats['test_ineq_max']),
               'test_ineq_worst': np.max(test_stats['test_ineq_worst']),
@@ -289,5 +308,131 @@ def load_weights(model, model_id):
     model.load_state_dict(checkpoint['state_dict'])
     model.to(device)
     return model
+
+
+def create_proj_dataloader(args, data, model, train_or_val):
+    proj_inputs = []
+    proj_targets = []
+    for (inputs, targets) in data[train_or_val]:
+        inputs, targets = process_for_training(inputs, targets, args)
+        z_star, z1, proj_num = model(inputs, phase='opt+feas')
+        proj_inputs.append(z1.detach().cpu())
+        proj_targets.append(z_star.detach().cpu())
+    proj_inputs_data = torch.cat(proj_inputs, dim=0)
+    proj_targets_data = torch.cat(proj_targets, dim=0)
+    proj_train_or_val_data = TensorDataset(proj_inputs_data, proj_targets_data)
+    proj_train_or_val = DataLoader(proj_train_or_val_data, batch_size=args.batch_size,
+                                   shuffle=True if train_or_val == 'train' else False)
+    return proj_train_or_val
+
+
+def proj_optimizer_step(model, proj_optimizer, inputs, targets, proj_epoch_stats):
+    loss = nn.MSELoss()
+    start_time = time.time()
+    proj_optimizer.zero_grad()
+    pseudo_z_star = model(inputs, phase='proj')
+    train_loss = loss(pseudo_z_star, targets)
+    train_loss.backward()
+    proj_optimizer.step()
+    train_time = time.time() - start_time
+
+    dict_agg(proj_epoch_stats, 'train_time', train_time, op='sum')
+    dict_agg(proj_epoch_stats, 'train_loss', train_loss.detach().cpu().numpy())
+
+
+def validate_proj_model(model, args, proj_val, proj_epoch_stats):
+    loss = nn.MSELoss()
+    for (inputs, targets) in proj_val:
+        inputs, targets = process_for_training(inputs, targets, args)
+        start_time = time.time()
+        pseudo_z_star = model(inputs, phase='proj')
+        val_time = time.time() - start_time
+        val_loss = loss(pseudo_z_star, targets)
+
+        dict_agg(proj_epoch_stats, 'val_time', np.array([val_time]))
+        dict_agg(proj_epoch_stats, 'val_loss', val_loss.detach().cpu().numpy())
+
+
+def Learning_learn2proj(args, data, problem, model, optimizer, proj_optimizer):
+    best = np.inf
+    stats = {}
+    for epoch in range(args.epochs):
+        epoch_stats = {}
+
+        # phase 1
+        # create proj train and val data in every epoch
+        model.eval()
+        proj_train = create_proj_dataloader(args, data, model, 'train')
+        proj_val = create_proj_dataloader(args, data, model, 'val')
+
+        # phase 2
+        for proj_epoch in range(args.proj_epochs):
+            proj_epoch_stats = {}
+            # proj train
+            model.train()
+            for (inputs, targets) in proj_train:
+                inputs, targets = process_for_training(inputs, targets, args)
+                proj_optimizer_step(model, proj_optimizer, inputs, targets, proj_epoch_stats)
+            # proj validate
+            model.eval()
+            validate_proj_model(model, args, proj_val, proj_epoch_stats)
+            # print proj_epoch_stats
+            if proj_epoch % 100 == 0:
+                print('----- Epoch {}, Proj_subEpoch {} -----'.format(epoch, proj_epoch))
+                print('Proj Train loss: {:.5f}, Proj Val loss: {: .5f}'.format(np.mean(proj_epoch_stats['train_loss']),
+                                                                               np.mean(proj_epoch_stats['val_loss'])))
+            # print('----- Epoch {}, Proj_Epoch {} -----'.format(epoch, proj_epoch))
+            # print('Proj Train loss: {:.5f}, Proj Val loss: {: .5f}'.format(np.mean(proj_epoch_stats['train_loss']),
+            #                                                                np.mean(proj_epoch_stats['val_loss'])))
+
+        # phase 3
+        model.train()
+        for (inputs, targets) in data['train']:
+            inputs, targets = process_for_training(inputs, targets, args)
+            optimizer_step(model, optimizer, inputs, targets, args, data, problem, epoch_stats)
+        # validate
+        model.eval()
+        validate_model(model, args, data, problem, epoch_stats)
+        # model checkpoint
+        checkpoint(model, best, args, epoch_stats, epoch)
+        best = np.minimum(best, np.mean(epoch_stats['val_gap_mean']))
+        # print epoch_stats
+        print('----- Epoch {} -----'.format(epoch))
+        print('Train loss: {:.5f}, Train time: {: .5f}'.format(np.mean(epoch_stats['train_loss']),
+                                                               epoch_stats['train_time']))
+        print('eq mean: {: .5f}, eq max: {: .5f}, eq worst: {: .5f}'.format(np.mean(epoch_stats['train_eq_mean']),
+                                                                             np.mean(epoch_stats['train_eq_max']),
+                                                                             np.max(epoch_stats['train_eq_worst'])))
+        print('ineq mean: {: .5f}, ineq max: {: .5f}, ineq worst: {: .5f}'.format(np.mean(epoch_stats['train_ineq_mean']),
+                                                                                  np.mean(epoch_stats['train_ineq_max']),
+                                                                                  np.max(epoch_stats['train_ineq_worst'])))
+        print('Val gap mean: {:.5f}, val gap worst: {: .5f}'.format(np.mean(epoch_stats['val_gap_mean']),
+                                                                    np.max(epoch_stats['val_gap_worst'])))
+        print('eq mean: {: .5f}, eq max: {: .5f}, eq worst: {: .5f}'.format(np.mean(epoch_stats['val_eq_mean']),
+                                                                            np.mean(epoch_stats['val_eq_max']),
+                                                                            np.max(epoch_stats['val_eq_worst'])))
+        print('ineq mean: {: .5f}, ineq max: {: .5f}, ineq worst: {: .5f}'.format(np.mean(epoch_stats['val_ineq_mean']),
+                                                                                  np.mean(epoch_stats['val_ineq_max']),
+                                                                                  np.max(epoch_stats['val_ineq_worst'])))
+        print('Infer time (batched inference mean): {: .5f}'.format(np.mean(epoch_stats['val_time'])))
+        print('Val projections: {: 0f}'.format(np.mean(epoch_stats['val_proj'])))
+        # save stats
+        if args.saveAllStats:
+            if epoch == 0:
+                for key in epoch_stats.keys():
+                    stats[key] = np.expand_dims(np.array(epoch_stats[key]), axis=0)
+            else:
+                for key in epoch_stats.keys():
+                    stats[key] = np.concatenate((stats[key], np.expand_dims(np.array(epoch_stats[key]), axis=0)))
+        else:
+            stats = epoch_stats
+
+        if epoch % args.resultSaveFreq == 0:
+            with open(f'./logs/{args.model_id}_TrainingStats.dict', 'wb') as f:
+                pickle.dump(stats, f)
+        # save the final stats
+        if epoch == args.epochs - 1:
+            with open(f'./logs/{args.model_id}_TrainingStats.dict', 'wb') as f:
+                pickle.dump(stats, f)
 
 

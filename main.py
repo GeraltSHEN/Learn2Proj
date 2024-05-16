@@ -1,10 +1,10 @@
-from train import run_training, evaluate_model, sanity_check
+from train import run_training, evaluate_model, data_sanity_check
 from utils import load_data, load_problem
 import argparse
 import os
 import torch
 import default_args
-import make_datasets
+from make_datasets import proj_sanity_check, make_proj_dataset
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 torch.set_default_dtype(torch.float64)
@@ -31,6 +31,8 @@ def add_arguments():
     parser.add_argument("--primal_hidden_num", type=int)
     parser.add_argument("--dual_hidden_dim", type=int)
     parser.add_argument("--dual_hidden_num", type=int)
+    parser.add_argument("--proj_hidden_dim", type=int)
+    parser.add_argument("--proj_hidden_num", type=int)
 
     # ALM and penalty related parameters
     parser.add_argument("--penalty_g", type=float,
@@ -55,6 +57,8 @@ def add_arguments():
     # project related parameters
     parser.add_argument("--max_iter", type=int)
     parser.add_argument("--f_tol", type=float)
+    parser.add_argument("--learn2proj", type=bool)
+    parser.add_argument("--proj_epochs", type=int)
 
     # save related parameters
     parser.add_argument("--saveAllStats", default=True, type=bool)
@@ -68,6 +72,11 @@ def complete_args(args):
     for key in defaults.keys():
         if eval('args.' + key) is None:
             exec('args.' + key + ' = defaults[key]')
+
+    if args.model == 'dual_learn2proj':
+        args.learn2proj = True
+    else:
+        args.learn2proj = False
 
     args.primal_input_dim = args.truncate_idx[1] - args.truncate_idx[0]
     args.primal_x_dim = args.primal_var_num
@@ -108,10 +117,14 @@ def main(args):
         problem = load_problem(args)
         # run training
         run_training(args, data, problem)
-    elif args.job == 'sanity_check':
-        sanity_check(args)
+    elif args.job == 'data_sanity_check':
+        data_sanity_check(args)
+    elif args.job == 'proj_sanity_check':
+        proj_sanity_check(args)
+    elif args.job == 'make_proj_dataset':
+        make_proj_dataset(args)
     elif args.job == 'make_datasets':
-        sanity_check(args)
+        pass
     else:
         pass
         # data = load_data(args)

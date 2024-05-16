@@ -34,8 +34,8 @@ def load_W_proj(args, problem):
     except:
         print(f'{extension}_Wz_proj.pt and {extension}_Wb_proj.pt not found. Calculating...')
         Wz_proj, Wb_proj = calc_W_proj(problem.A)
-        torch.save(Wz_proj, './data/' + args.dataset + f'/{extension}_Wz_proj.pt')
-        torch.save(Wb_proj, './data/' + args.dataset + f'/{extension}_Wb_proj.pt')
+        torch.save(Wz_proj.detach().cpu(), './data/' + args.dataset + f'/{extension}_Wz_proj.pt')
+        torch.save(Wb_proj.detach().cpu(), './data/' + args.dataset + f'/{extension}_Wb_proj.pt')
         print(f'{extension}_Wz_proj.pt and {extension}_Wb_proj.pt saved. Terminating.')
         return Wz_proj, Wb_proj
 
@@ -119,7 +119,7 @@ def load_data(args):
     return data_dict
 
 
-def sanity_check(args):
+def data_sanity_check(args):
     args.self_supervised = False
     args.batch_size = 1
     data = load_data(args)
@@ -138,7 +138,7 @@ def sanity_check(args):
         assert ineq_residual.dtype == torch.float64
         eq_max = torch.norm(eq_residual, float('inf'))
         ineq_max = torch.norm(ineq_residual, float('inf'))
-        if eq_max > 1e-5 or ineq_max > 1e-5:
+        if eq_max > args.f_tol or ineq_max > args.f_tol:
             print('train bad point {: .0f}: eq max violation: {: .5f}; ineq max violation: {: .5f}'.format(i, eq_max, ineq_max))
     for i, (inputs, targets) in enumerate(data['val']):
         inputs, targets = process_for_training(inputs, targets, args)
@@ -146,7 +146,7 @@ def sanity_check(args):
         ineq_residual = problem.ineq_residual(targets)
         eq_max = torch.norm(eq_residual, float('inf'))
         ineq_max = torch.norm(ineq_residual, float('inf'))
-        if eq_max > 1e-5 or ineq_max > 1e-5:
+        if eq_max > args.f_tol or ineq_max > args.f_tol:
             print('val bad point {: .0f}: eq max violation: {: .5f}; ineq max violation: {: .5f}'.format(i, eq_max, ineq_max))
 
 
@@ -182,6 +182,17 @@ def load_model(args, problem):
         model = models.VanillaNN(input_dim=input_dim, hidden_dim=hidden_dim,
                                  hidden_num=hidden_num, output_dim=output_dim,
                                  truncate_idx=problem.truncate_idx)
+    elif args.model == 'dual_learn2proj':
+        assert args.learn2proj
+        Wz_proj, Wb_proj = load_W_proj(args, problem)
+        model = models.DualLearn2Proj(input_dim=input_dim, hidden_dim=hidden_dim,
+                                      hidden_num=hidden_num, output_dim=output_dim,
+                                      proj_hidden_dim=args.proj_hidden_dim, proj_hidden_num=args.proj_hidden_num,
+                                      truncate_idx=problem.truncate_idx, free_idx=problem.free_idx,
+                                      A=problem.A, b=problem.b,
+                                      WzProj=Wz_proj, WbProj=Wb_proj,
+                                      max_iter=args.max_iter, f_tol=args.f_tol)
+
     else:
         raise ValueError('Invalid model')
     model = model.double().to(device)
@@ -204,14 +215,29 @@ def get_optimizer(args, model):
 
 
 def get_violation_mean_max_worst(residual):
-    mean = torch.abs(residual).mean()  # mean of constraints and samples
+    # mean = torch.abs(residual).mean()  # mean of constraints and samples
+    mean = torch.norm(residual, p=2, dim=-1).mean()  # mean of constraints and samples
     max = torch.norm(residual, float('inf'), dim=-1).mean()  # mean of samples, max of constraints
     worst = torch.norm(residual, float('inf'))  # max of samples and constraints
     return mean, max, worst
 
 
+def get_scale_mean_max_worst(rhs):
+    mean = 1 + torch.norm(rhs, p=2, dim=-1).mean()  # mean of rhs and samples
+    max = 1 + torch.norm(rhs, float('inf'), dim=-1).mean()  # mean of samples, max of rhs
+    worst = 1 + torch.norm(rhs, float('inf'))  # max of samples and rhs
+    return mean, max, worst
+
+
+def get_scaled_violation_mean_max_worst(residual, rhs):
+    mean, max, worst = get_violation_mean_max_worst(residual)
+    scale_mean, scale_max, scale_worst = get_scale_mean_max_worst(rhs)
+    return mean / scale_mean, max / scale_max, worst / scale_worst
+
+
 def get_gap_mean_worst(gap):
-    mean = torch.abs(gap).mean()  # mean of samples
+    # mean = torch.abs(gap).mean()  # mean of samples
+    mean = torch.norm(gap, p=2, dim=-1).mean()  # mean of samples
     worst = torch.norm(gap, float('inf'))  # max of samples
     return mean, worst
 

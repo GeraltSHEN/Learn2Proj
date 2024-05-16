@@ -27,6 +27,10 @@ class PrimalLP:
         self._mutable_W = torch.eye(A.shape[1])[truncate_idx[0]:truncate_idx[1]].to(self._device)
         self._immutable_W = torch.cat((torch.eye(A.shape[1])[:truncate_idx[0]], torch.eye(A.shape[1])[truncate_idx[1]+1:]), dim=0).to(self._device)
 
+    @staticmethod
+    def b(in_val):
+        return in_val
+
     @property
     def c(self):
         return self._c
@@ -130,8 +134,7 @@ class DualLP:
         self._mutable_W = torch.eye(A.shape[1])[truncate_idx[0]:truncate_idx[1]].to(self._device)
         self._immutable_W = torch.cat((torch.eye(A.shape[1])[:truncate_idx[0]], torch.eye(A.shape[1])[truncate_idx[1]+1:]), dim=0).to(self._device)
 
-    @property
-    def b(self):
+    def b(self, in_val=None):
         return self._b
 
     @property
@@ -202,7 +205,7 @@ class DualLP:
         return optimality_gap
 
     def eq_residual(self, y, in_val=None):
-        return y @ self.A.t() - self.b
+        return y @ self.A.t() - self.b(None)
 
     def ineq_residual(self, y):
         fx, s = torch.split(y, [self._free_num, self._var_num - self._free_num], dim=-1)

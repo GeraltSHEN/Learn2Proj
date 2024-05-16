@@ -17,6 +17,8 @@ def method_default_args(dataset):
         defaults['primal_hidden_num'] = 1
         defaults['dual_hidden_dim'] = 64
         defaults['dual_hidden_num'] = 1
+        defaults['proj_hidden_dim'] = 256
+        defaults['proj_hidden_num'] = 2
 
         # ALM and penalty related parameters
         defaults['penalty_g'] = 50000
@@ -38,7 +40,9 @@ def method_default_args(dataset):
 
         # project related parameters
         defaults['max_iter'] = 1000
-        defaults['f_tol'] = 1e-4
+        defaults['f_tol'] = 1e-9
+        defaults['learn2proj'] = False
+        defaults['proj_epochs'] = 500
 
     elif dataset == 'DCOPF_large':
         # dataset related parameters
@@ -55,6 +59,8 @@ def method_default_args(dataset):
         defaults['primal_hidden_num'] = 1
         defaults['dual_hidden_dim'] = 1024
         defaults['dual_hidden_num'] = 1
+        defaults['proj_hidden_dim'] = 2048
+        defaults['proj_hidden_num'] = 2
 
         # ALM and penalty related parameters
         defaults['penalty_g'] = 50
@@ -76,7 +82,9 @@ def method_default_args(dataset):
 
         # project related parameters
         defaults['max_iter'] = 1000
-        defaults['f_tol'] = 1e-4
+        defaults['f_tol'] = 1e-12
+        defaults['learn2proj'] = False
+        defaults['proj_epochs'] = 500
 
     else:
         raise NotImplementedError
