@@ -236,8 +236,7 @@ def get_scaled_violation_mean_max_worst(residual, rhs):
 
 
 def get_gap_mean_worst(gap):
-    # mean = torch.abs(gap).mean()  # mean of samples
-    mean = torch.norm(gap, p=2, dim=-1).mean()  # mean of samples
+    mean = torch.abs(gap).mean()  # mean of samples
     worst = torch.norm(gap, float('inf'))  # max of samples
     return mean, worst
 
