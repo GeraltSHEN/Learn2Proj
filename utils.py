@@ -199,11 +199,18 @@ def load_model(args, problem):
     return model
 
 
-def get_optimizer(args, model):
-    if isinstance(model, tuple):
-        params = list(model[0].parameters()) + list(model[1].parameters())
+def get_optimizer(args, model, proj=False):
+    if proj:
+        params = model.projection_layers.parameters()
+        print(f'proj_optimizer for projection_layers')
+        # params = list(model[0].parameters()) + list(model[1].parameters())
     else:
-        params = model.parameters()
+        if args.learn2proj:
+            params = model.optimality_layers.parameters()
+            print(f'optimizer for optimality_layers')
+        else:
+            params = model.parameters()
+            print(f'optimizer for all layers')
 
     if args.optimizer == 'Adam':
         optimizer = optim.Adam(params, lr=args.lr, weight_decay=args.weight_decay)

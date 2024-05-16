@@ -17,7 +17,7 @@ def method_default_args(dataset):
         defaults['primal_hidden_num'] = 1
         defaults['dual_hidden_dim'] = 64
         defaults['dual_hidden_num'] = 1
-        defaults['proj_hidden_dim'] = 256
+        defaults['proj_hidden_dim'] = 64
         defaults['proj_hidden_num'] = 2
 
         # ALM and penalty related parameters

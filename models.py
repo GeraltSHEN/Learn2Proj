@@ -268,8 +268,10 @@ class DualLearn2Proj(nn.Module):
         # (pseudo) - projection layers
         self.projection_layers = nn.ModuleList()
         self.projection_layers.append(nn.Linear(output_dim, proj_hidden_dim))
+        self.projection_layers.append(nn.LayerNorm(proj_hidden_dim))  # add layer norm
         for _ in range(proj_hidden_num - 1):
             self.projection_layers.append(nn.Linear(proj_hidden_dim, proj_hidden_dim))
+            self.projection_layers.append(nn.LayerNorm(proj_hidden_dim))  # add layer norm
         self.projection_layers.append(nn.Linear(proj_hidden_dim, output_dim))
 
         # feasibility layers
@@ -335,9 +337,12 @@ class DualLearn2Proj(nn.Module):
             # phase 2: learn projection
             # inputs are z1
             self.unfix_projection_weights()
-            for layer in self.projection_layers[:-1]:
-                inputs = F.relu(layer(inputs))
+
+            for i in range(0, len(self.projection_layers) - 1, 2):
+                inputs = F.relu(self.projection_layers[i](inputs))
+                inputs = self.projection_layers[i+1](inputs)  # Apply LayerNorm
             pseudo_z_star = self.projection_layers[-1](inputs)
+
             u, v = torch.split(pseudo_z_star, [self.free_num, self.output_dim - self.free_num], dim=-1)
             v = F.relu(v)
             pseudo_z_star = torch.cat((u, v), dim=-1)
@@ -351,9 +356,12 @@ class DualLearn2Proj(nn.Module):
             for layer in self.optimality_layers[:-1]:
                 inputs = F.relu(layer(inputs))
             z1 = self.optimality_layers[-1](inputs)
-            for layer in self.projection_layers[:-1]:
-                z1 = F.relu(layer(z1))
+
+            for i in range(0, len(self.projection_layers) - 1, 2):
+                z1 = F.relu(self.projection_layers[i](z1))
+                z1 = self.projection_layers[i+1](z1)  # Apply LayerNorm
             pseudo_z_star = self.projection_layers[-1](z1)
+
             u, v = torch.split(pseudo_z_star, [self.free_num, self.output_dim - self.free_num], dim=-1)
             v = F.relu(v)
             pseudo_z_star = torch.cat((u, v), dim=-1)

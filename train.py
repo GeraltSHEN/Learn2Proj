@@ -49,7 +49,7 @@ def run_training(args, data, problem):
     start_time = time.time()
     ##############################################################################################################
     if args.learn2proj:
-        proj_optimizer = get_optimizer(args, model)
+        proj_optimizer = get_optimizer(args, model, proj=True)
         Learning_learn2proj(args, data, problem, model, optimizer, proj_optimizer)
     else:
         Learning(args, data, problem, model, optimizer)
@@ -380,7 +380,7 @@ def Learning_learn2proj(args, data, problem, model, optimizer, proj_optimizer):
             if proj_epoch % 100 == 0:
                 print('----- Epoch {}, Proj_subEpoch {} -----'.format(epoch, proj_epoch))
                 print('Proj Train loss: {:.5f}, Proj Val loss: {: .5f}'.format(np.mean(proj_epoch_stats['train_loss']),
-                                                                               np.mean(proj_epoch_stats['val_loss'])))
+                                                                                np.mean(proj_epoch_stats['val_loss'])))
             # print('----- Epoch {}, Proj_Epoch {} -----'.format(epoch, proj_epoch))
             # print('Proj Train loss: {:.5f}, Proj Val loss: {: .5f}'.format(np.mean(proj_epoch_stats['train_loss']),
             #                                                                np.mean(proj_epoch_stats['val_loss'])))
