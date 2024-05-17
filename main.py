@@ -59,6 +59,7 @@ def add_arguments():
     parser.add_argument("--f_tol", type=float)
     parser.add_argument("--learn2proj", type=bool)
     parser.add_argument("--proj_epochs", type=int)
+    parser.add_argument("--precondition", type=str)
 
     # save related parameters
     parser.add_argument("--saveAllStats", default=True, type=bool)
@@ -113,8 +114,7 @@ def main(args):
     if not os.path.exists('./logs'):
         os.makedirs('./logs')
     if args.job == 'training':
-        data = load_data(args)
-        problem = load_problem(args)
+        data, problem = load_data(args)
         # run training
         run_training(args, data, problem)
     elif args.job == 'data_sanity_check':

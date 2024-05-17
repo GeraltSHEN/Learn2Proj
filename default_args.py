@@ -43,6 +43,7 @@ def method_default_args(dataset):
         defaults['f_tol'] = 1e-9
         defaults['learn2proj'] = False
         defaults['proj_epochs'] = 500
+        defaults['precondition'] = 'none'
 
     elif dataset == 'DCOPF_large':
         # dataset related parameters
@@ -85,6 +86,7 @@ def method_default_args(dataset):
         defaults['f_tol'] = 1e-12
         defaults['learn2proj'] = False
         defaults['proj_epochs'] = 500
+        defaults['precondition'] = 'none'
 
     else:
         raise NotImplementedError

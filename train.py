@@ -64,7 +64,7 @@ def run_training(args, data, problem):
     print(f'switching {args.test_val_train} dataset ')
     args.test_val_train = 'test'
     print(f'to {args.test_val_train} dataset')
-    data = load_data(args)
+    data, problem = load_data(args)
     scores = evaluate_model(args, data, problem)
 
 
@@ -354,6 +354,20 @@ def validate_proj_model(model, args, proj_val, proj_epoch_stats):
 
 
 def Learning_learn2proj(args, data, problem, model, optimizer, proj_optimizer):
+    # bug occurs in Learning_learn2proj, occurs in phase 1 and phase 2
+    # at least, if we don't fix projection layer, then there is no bug ---> phase 1 doesn't have bug
+    # also, unfix and fix methods work well,
+    # the bug occurs in phase 2
+    # it seems the train and val loss just doesn't change after 100 proj_epochs and never change
+    # priority: is the optimizer updating the projection layer? is the projection layer unfixed?
+    # it seems the optimizer works and the layer is unfixed, but just stuck at every high loss
+    # then, next question, is the num of prj_hidden_dim and prj_hidden_num enough?
+    # 152 * 2 results in 22027
+    # 152 * 10 results in 120509
+    # 64 * 2 results in 42137
+    # 64 * 2 (layernorm) results in incredibly 0.00221
+    # now layernorm works to reduce the loss, see if the whole learn2proj framework works
+
     best = np.inf
     stats = {}
     for epoch in range(args.epochs):

@@ -27,51 +27,86 @@ def load_W_proj(args, problem):
         extension = 'dual'
     else:
         raise ValueError('Invalid problem')
-    try:
-        Wz_proj = torch.load('./data/' + args.dataset + f'/{extension}_Wz_proj.pt').to(device)
-        Wb_proj = torch.load('./data/' + args.dataset + f'/{extension}_Wb_proj.pt').to(device)
-        return Wz_proj, Wb_proj
-    except:
-        print(f'{extension}_Wz_proj.pt and {extension}_Wb_proj.pt not found. Calculating...')
-        Wz_proj, Wb_proj = calc_W_proj(problem.A)
-        torch.save(Wz_proj.detach().cpu(), './data/' + args.dataset + f'/{extension}_Wz_proj.pt')
-        torch.save(Wb_proj.detach().cpu(), './data/' + args.dataset + f'/{extension}_Wb_proj.pt')
-        print(f'{extension}_Wz_proj.pt and {extension}_Wb_proj.pt saved. Terminating.')
-        return Wz_proj, Wb_proj
+    Wz_proj, Wb_proj = calc_W_proj(problem.A)
+    torch.save(Wz_proj.detach().cpu(), './data/' + args.dataset + f'/{extension}_Wz_proj.pt')
+    torch.save(Wb_proj.detach().cpu(), './data/' + args.dataset + f'/{extension}_Wb_proj.pt')
+    print(f'{extension}_Wz_proj.pt and {extension}_Wb_proj.pt saved. Terminating.')
+    return Wz_proj, Wb_proj
+    # try:
+    #     Wz_proj = torch.load('./data/' + args.dataset + f'/{extension}_Wz_proj.pt').to(device)
+    #     Wb_proj = torch.load('./data/' + args.dataset + f'/{extension}_Wb_proj.pt').to(device)
+    #     return Wz_proj, Wb_proj
+    # except:
+    #     print(f'{extension}_Wz_proj.pt and {extension}_Wb_proj.pt not found. Calculating...')
+    #     Wz_proj, Wb_proj = calc_W_proj(problem.A)
+    #     torch.save(Wz_proj.detach().cpu(), './data/' + args.dataset + f'/{extension}_Wz_proj.pt')
+    #     torch.save(Wb_proj.detach().cpu(), './data/' + args.dataset + f'/{extension}_Wb_proj.pt')
+    #     print(f'{extension}_Wz_proj.pt and {extension}_Wb_proj.pt saved. Terminating.')
+    #     return Wz_proj, Wb_proj
+
+
+def preconditioning(A, args):
+    if args.precondition == 'Pock-Chambolle':
+        row_norms = torch.norm(A, dim=1, p=1)
+        col_norms = torch.norm(A, dim=0, p=1)
+        D1 = torch.diag(torch.sqrt(row_norms))
+        D2 = torch.diag(torch.sqrt(col_norms))
+    elif args.precondition == 'Ruiz':
+        row_norms = torch.norm(A, dim=1, p=float('inf'))
+        col_norms = torch.norm(A, dim=0, p=float('inf'))
+        D1 = torch.diag(torch.sqrt(row_norms))
+        D2 = torch.diag(torch.sqrt(col_norms))
+    else:
+        D1 = torch.eye(A.shape[0]).to(device)
+        D2 = torch.eye(A.shape[1]).to(device)
+    return D1, D2
 
 
 def load_problem(args):
     if args.problem == 'primal_lp':
         A_primal = torch.load('./data/' + args.dataset + '/A_primal.pt').to(device)
         c_primal = torch.load('./data/' + args.dataset + '/c_primal.pt').to(device)
-        problem = PrimalLP(c_primal, A_primal, args.primal_fx_idx, args.truncate_idx)
-        return problem
+
+        D1, D2 = preconditioning(A_primal, args)
+        scaled_A_primal = D1 @ A_primal @ D2
+        scaled_c_primal = D2 @ c_primal
+
+        problem = PrimalLP(scaled_c_primal, scaled_A_primal, args.primal_fx_idx, args.truncate_idx)
+        return problem, D1.detach().cpu(), D2.detach().cpu()
     elif args.problem == 'dual_lp':
         A_dual = torch.load('./data/' + args.dataset + '/A_dual.pt').to(device)
         b_dual = torch.load('./data/' + args.dataset + '/b_dual.pt').to(device)
-        problem = DualLP(b_dual, A_dual, args.dual_fx_idx, args.truncate_idx)
-        return problem
+
+        D1, D2 = preconditioning(A_dual, args)
+        scaled_A_dual = D1 @ A_dual @ D2
+        scaled_b_dual = D1 @ b_dual
+
+        problem = DualLP(scaled_b_dual, scaled_A_dual, args.dual_fx_idx, args.truncate_idx)
+        return problem, D1.detach().cpu(), D2.detach().cpu()
     else:
         raise ValueError('Invalid problem')
 
 
-def load_dual_problem(args):
-    if args.problem == 'primal_lp':
-        A_dual = torch.load('./data/' + args.dataset + '/A_dual.pt').to(device)
-        b_dual = torch.load('./data/' + args.dataset + '/b_dual.pt').to(device)
-        problem = DualLP(b_dual, A_dual, args.dual_fx_idx, args.truncate_idx)
-        return problem
-    elif args.problem == 'dual_lp':
-        A_primal = torch.load('./data/' + args.dataset + '/A_primal.pt').to(device)
-        c_primal = torch.load('./data/' + args.dataset + '/c_primal.pt').to(device)
-        problem = PrimalLP(c_primal, A_primal, args.primal_fx_idx, args.truncate_idx)
-        return problem
-    else:
-        raise ValueError('Invalid problem')
+# def load_dual_problem(args):
+#     if args.problem == 'primal_lp':
+#         A_dual = torch.load('./data/' + args.dataset + '/A_dual.pt').to(device)
+#         b_dual = torch.load('./data/' + args.dataset + '/b_dual.pt').to(device)
+#         problem = DualLP(b_dual, A_dual, args.dual_fx_idx, args.truncate_idx)
+#         return problem
+#     elif args.problem == 'dual_lp':
+#         A_primal = torch.load('./data/' + args.dataset + '/A_primal.pt').to(device)
+#         c_primal = torch.load('./data/' + args.dataset + '/c_primal.pt').to(device)
+#         problem = PrimalLP(c_primal, A_primal, args.primal_fx_idx, args.truncate_idx)
+#         return problem
+#     else:
+#         raise ValueError('Invalid problem')
 
 
 def load_data(args):
+    problem, D1, D2 = load_problem(args)
+
     input_train = torch.load('./data/' + args.dataset + '/train/input_train.pt')
+    input_train = input_train @ D1.t()
 
     if args.self_supervised:
         extension = 'self_'
@@ -91,6 +126,7 @@ def load_data(args):
         target_val = target_train
     else:
         raise ValueError('Invalid test_val_train')
+    input_val = input_val @ D1.t()
 
     train_shape_in = input_train.shape
     train_shape_out = target_train.shape
@@ -116,7 +152,7 @@ def load_data(args):
                  'mean': mean, 'std': std,
                  'train_shape_in': train_shape_in, 'train_shape_out': train_shape_out,
                  'val_shape_in': val_shape_in, 'val_shape_out': val_shape_out}
-    return data_dict
+    return data_dict, problem
 
 
 def data_sanity_check(args):
