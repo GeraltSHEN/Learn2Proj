@@ -143,7 +143,7 @@ def rho_search(args):
             print(f'eapm_solver.rho = {eapm_solver.rho}')
             update_rho_search_dict(data, data_type, eapm_solver, Wb_proj, args, dictionary)
     # construct a csv where each column is a different rho
-    with open(f'./data/sanity_check/{args.dataset}_{args.precondition}_rho_search.csv', 'w', newline='') as file:
+    with open(f'./data/sanity_check/{args.dataset}_{args.precondition}{args.periodic}_rho_search.csv', 'w', newline='') as file:
         writer = csv.writer(file)
         writer.writerow(['rho', 'avg proj num train', 'unconverged rate train',
                          'avg proj num val', 'unconverged rate val',

@@ -136,6 +136,8 @@ class EAPM(nn.Module):
             #     z = z + self.rho * K.unsqueeze(-1) * residual
             # compute y_new
             z = z + self.rho * K.unsqueeze(-1) * residual
+            # avoid numerical issue
+            z = Bias_Proj + z @ self.Weight_Proj
             curr_iter += 1
             eq_stopping_criterion, ineq_stopping_criterion = self.stopping_criterion(z, b_0)
             if (eq_stopping_criterion <= self.eq_tol).all() and (ineq_stopping_criterion <= self.ineq_tol).all():
@@ -192,6 +194,8 @@ class PeriodicEAPM(nn.Module):
                 z = z + self.rho * K.unsqueeze(-1) * residual
             # # compute y_new
             # z = z + self.rho * K.unsqueeze(-1) * residual
+            # avoid numerical issue
+            z = Bias_Proj + z @ self.Weight_Proj
             curr_iter += 1
             eq_stopping_criterion, ineq_stopping_criterion = self.stopping_criterion(z, b_0)
             if (eq_stopping_criterion <= self.eq_tol).all() and (ineq_stopping_criterion <= self.ineq_tol).all():
