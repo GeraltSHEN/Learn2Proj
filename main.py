@@ -1,10 +1,10 @@
-from train import run_training, evaluate_model, data_sanity_check
-from utils import load_data, load_problem
+from train import run_training
+from utils import load_data, data_sanity_check
+from pretrain import rho_search, baseline_pocs
 import argparse
 import os
 import torch
 import default_args
-from make_datasets import proj_sanity_check, make_proj_dataset
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 torch.set_default_dtype(torch.float64)
@@ -57,9 +57,14 @@ def add_arguments():
     # project related parameters
     parser.add_argument("--max_iter", type=int)
     parser.add_argument("--f_tol", type=float)
+    parser.add_argument("--eq_tol", type=float)
+    parser.add_argument("--ineq_tol", type=float)
+    parser.add_argument("--projection", type=str)
+    parser.add_argument("--rho", type=float)
     parser.add_argument("--learn2proj", type=bool)
     parser.add_argument("--proj_epochs", type=int)
     parser.add_argument("--precondition", type=str)
+    parser.add_argument("--periodic", type=bool)
 
     # save related parameters
     parser.add_argument("--saveAllStats", default=True, type=bool)
@@ -117,12 +122,18 @@ def main(args):
         data, problem = load_data(args)
         # run training
         run_training(args, data, problem)
+    elif args.job == 'rho_search':
+        rho_search(args)
+    elif args.job == 'baseline_pocs':
+        baseline_pocs(args)
+    # elif args.job == 'projection_sanity_check':
+    #     projection_sanity_check(args)
+        #preconditions = ['none', 'Pock-Chambolle', 'Ruiz']
+        #for precondition in preconditions:
+            #args.precondition = precondition
+            #projection_sanity_check(args)
     elif args.job == 'data_sanity_check':
         data_sanity_check(args)
-    elif args.job == 'proj_sanity_check':
-        proj_sanity_check(args)
-    elif args.job == 'make_proj_dataset':
-        make_proj_dataset(args)
     elif args.job == 'make_datasets':
         pass
     else:

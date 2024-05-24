@@ -40,10 +40,15 @@ def method_default_args(dataset):
 
         # project related parameters
         defaults['max_iter'] = 1000
-        defaults['f_tol'] = 1e-9
+        defaults[ 'f_tol' ] = 1e-6
+        defaults['eq_tol'] = 1e-6
+        defaults['ineq_tol'] = 1e-6
+        defaults['projection'] = 'POCS'  # POCS, EAPM
+        defaults['rho'] = 1.0
         defaults['learn2proj'] = False
         defaults['proj_epochs'] = 500
-        defaults['precondition'] = 'none'
+        defaults['precondition'] = 'none'  # none, Pock-Chambolle, Ruiz
+        defaults['periodic'] = False
 
     elif dataset == 'DCOPF_large':
         # dataset related parameters
@@ -83,10 +88,14 @@ def method_default_args(dataset):
 
         # project related parameters
         defaults['max_iter'] = 1000
-        defaults['f_tol'] = 1e-12
+        defaults[ 'f_tol' ] = 1e-6
+        defaults['eq_tol'] = 1e-6
+        defaults['ineq_tol'] = 1e-6
+        defaults['rho'] = 1.0
         defaults['learn2proj'] = False
         defaults['proj_epochs'] = 500
         defaults['precondition'] = 'none'
+        defaults['periodic'] = False
 
     else:
         raise NotImplementedError
