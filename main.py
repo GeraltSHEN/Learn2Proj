@@ -1,6 +1,6 @@
 from train import run_training
-from utils import load_data, data_sanity_check
-from pretrain import rho_search, baseline_pocs
+from utils import load_data
+from pretrain import rho_search, baseline_pocs, data_sanity_check
 import argparse
 import os
 import torch
@@ -126,12 +126,6 @@ def main(args):
         rho_search(args)
     elif args.job == 'baseline_pocs':
         baseline_pocs(args)
-    # elif args.job == 'projection_sanity_check':
-    #     projection_sanity_check(args)
-        #preconditions = ['none', 'Pock-Chambolle', 'Ruiz']
-        #for precondition in preconditions:
-            #args.precondition = precondition
-            #projection_sanity_check(args)
     elif args.job == 'data_sanity_check':
         data_sanity_check(args)
     elif args.job == 'make_datasets':

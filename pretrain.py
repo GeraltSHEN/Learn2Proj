@@ -20,16 +20,31 @@ def load_data(args, data_type):
 
     if data_type == 'train':
         inputs = torch.load('./data/' + args.dataset + '/train/input_train.pt')
-        inputs = inputs @ D1.t()
-        targets = torch.load('./data/' + args.dataset + '/train/' + '' + 'target_train.pt')
+        inputs = inputs * D1
+        if 'target_train.pt' not in os.listdir('./data/' + args.dataset + '/train/'):
+            print('supervised label not found, created a random one')
+            targets = torch.zeros((inputs.shape[0], problem.var_num))
+        else:
+            targets = torch.load('./data/' + args.dataset + '/train/' + '' + 'target_train.pt')
+
     elif data_type == 'val':
         inputs = torch.load('./data/' + args.dataset + '/val/input_val.pt')
-        inputs = inputs @ D1.t()
-        targets = torch.load('./data/' + args.dataset + '/val/' + '' + 'target_val.pt')
+        inputs = inputs * D1
+        if 'target_val.pt' not in os.listdir('./data/' + args.dataset + '/val/'):
+            print('supervised label not found, created a random one')
+            targets = torch.zeros((inputs.shape[0], problem.var_num))
+        else:
+            targets = torch.load('./data/' + args.dataset + '/val/' + '' + 'target_val.pt')
+
     elif data_type == 'test':
         inputs = torch.load('./data/' + args.dataset + '/test/input_test.pt')
-        inputs = inputs @ D1.t()
-        targets = torch.load('./data/' + args.dataset + '/test/' + '' + 'target_test.pt')
+        inputs = inputs * D1
+        if 'target_test.pt' not in os.listdir('./data/' + args.dataset + '/test/'):
+            print('supervised label not found, created a random one')
+            targets = torch.zeros((inputs.shape[0], problem.var_num))
+        else:
+            targets = torch.load('./data/' + args.dataset + '/test/' + '' + 'target_test.pt')
+
     else:
         raise ValueError('data_type should be train, val, or test')
     dataset = TensorDataset(inputs, targets)
@@ -48,11 +63,33 @@ def load_solvers(args, problem):
     return pocs_solver, eapm_solver, Wb_proj.t().requires_grad_(False).to(device)
 
 
+def data_sanity_check(args):
+    data_types = ['train', 'val', 'test']
+    for data_type in data_types:
+        data, problem = load_data(args, data_type)
+        assert problem.A.dtype == torch.float64
+        for i, (inputs, targets) in enumerate(data):
+            inputs, targets = process_for_training(inputs, targets, args)
+            assert inputs.dtype == torch.float64
+            assert targets.dtype == torch.float64
+            eq_residual = problem.eq_residual(targets, inputs)
+            ineq_residual = problem.ineq_residual(targets)
+            assert eq_residual.dtype == torch.float64
+            assert ineq_residual.dtype == torch.float64
+            eq_stopping_criterion = torch.mean(torch.abs(eq_residual), dim=0)
+            ineq_stopping_criterion = torch.mean(torch.abs(ineq_residual), dim=0)
+            if (eq_stopping_criterion > args.eq_tol).all() or (ineq_stopping_criterion > args.ineq_tol).all():
+                print('{} bad point {: .0f}: eq max violation: {: .5f}; ineq max violation: {: .5f}'.format(
+                    data_type, i, eq_stopping_criterion.max(), ineq_stopping_criterion.max()))
+
+
 def projection_on_data(data, solver, Wb_proj, args):
     solver.eval()
     avg_proj_num = 0
     unconverged = 0
     unconverged_idx = []
+
+    total_time = 0
 
     for i, (inputs, targets) in enumerate(data):
         inputs, targets = process_for_training(inputs, targets, args)
@@ -60,7 +97,10 @@ def projection_on_data(data, solver, Wb_proj, args):
             zero_z = torch.zeros_like(targets)
             b_primal = inputs
             Bias_Proj = b_primal @ Wb_proj  # has been transposed
+        # let's count the projection time
+        start = time.time()
         z_star, proj_num = solver(zero_z, Bias_Proj, b_primal)
+        total_time = total_time + time.time() - start
         if proj_num >= args.max_iter:
             unconverged += 1
             unconverged_idx.append(i)
@@ -68,9 +108,11 @@ def projection_on_data(data, solver, Wb_proj, args):
         avg_proj_num += proj_num
     avg_proj_num /= len(data)
     unconverged_rate = unconverged / len(data)
+    total_time /= len(data)
     print(f'Average projection number for train: {avg_proj_num:.2f}, '
-          f'unconverged rate: {unconverged_rate:.5f}')
-    return avg_proj_num, unconverged_rate, unconverged_idx
+          f'unconverged rate: {unconverged_rate:.5f}, '
+          f'projection time per instance: {total_time:.2f} seconds')
+    return avg_proj_num, unconverged_rate, unconverged_idx, total_time
 
 
 def baseline_pocs(args):
@@ -84,27 +126,35 @@ def baseline_pocs(args):
     for data_type in data_types:
         data, problem = load_data(args, data_type)
         pocs_solver, _, Wb_proj = load_solvers(args, problem)
-        avg_proj_num, unconverged_rate, unconverged_idx = projection_on_data(data, pocs_solver, Wb_proj, args)
+        avg_proj_num, unconverged_rate, unconverged_idx, proj_time = projection_on_data(data, pocs_solver, Wb_proj, args)
         dictionary[f'avg proj num {data_type}'] = avg_proj_num
         dictionary[f'unconverged rate {data_type}'] = unconverged_rate
+        dictionary[f'avg proj time {data_type}'] = proj_time
     with open(f'./data/sanity_check/{args.dataset}_{args.precondition}_pocs_baseline.csv', 'w', newline='') as file:
         writer = csv.writer(file)
-        writer.writerow(['avg proj num train', 'unconverged rate train',
-                         'avg proj num val', 'unconverged rate val',
-                         'avg proj num test', 'unconverged rate test',
-                         'avg proj num total', 'unconverged rate total'])
+        writer.writerow(['avg proj num train', 'unconverged rate train', 'avg proj time train',
+                         'avg proj num val', 'unconverged rate val', 'avg proj time val',
+                         'avg proj num test', 'unconverged rate test', 'avg proj time test',
+                         'avg proj num total', 'unconverged rate total', 'avg proj time total'
+                         ])
         writer.writerow([int(dictionary['avg proj num train']),
                          dictionary['unconverged rate train'],
+                            dictionary['avg proj time train'],
                          int(dictionary['avg proj num val']),
                          dictionary['unconverged rate val'],
+                            dictionary['avg proj time val'],
                          int(dictionary['avg proj num test']),
                          dictionary['unconverged rate test'],
+                            dictionary['avg proj time test'],
                          int((dictionary['avg proj num train'] +
                               dictionary['avg proj num val'] +
                               dictionary['avg proj num test']) / 3),
                          (dictionary['unconverged rate train'] +
                           dictionary['unconverged rate val'] +
-                          dictionary['unconverged rate test']) / 3])
+                          dictionary['unconverged rate test']) / 3,
+                            (dictionary['avg proj time train'] +
+                             dictionary['avg proj time val'] +
+                             dictionary['avg proj time test']) / 3])
         writer.writerow([])
         writer.writerow([])
         writer.writerow(['dataset', args.dataset])
@@ -113,14 +163,16 @@ def baseline_pocs(args):
         writer.writerow(['eq_tol', args.eq_tol])
         writer.writerow(['ineq_tol', args.ineq_tol])
         writer.writerow(['max_iter', args.max_iter])
+        writer.writerow(['device', device])
 
 
 def update_rho_search_dict(data, data_type, eapm_solver, Wb_proj, args, dictionary):
     rho_sub_dict = {}
     print(f'----- checking rho = {args.rho}, {data_type}')
-    avg_proj_num, unconverged_rate, unconverged_idx = projection_on_data(data, eapm_solver, Wb_proj, args)
+    avg_proj_num, unconverged_rate, unconverged_idx, proj_time = projection_on_data(data, eapm_solver, Wb_proj, args)
     rho_sub_dict[f'avg proj num {data_type}'] = avg_proj_num
     rho_sub_dict[f'unconverged rate {data_type}'] = unconverged_rate
+    rho_sub_dict[f'avg proj time {data_type}'] = proj_time
     dictionary['rho'][f'{args.rho}'].update(rho_sub_dict)
 
 
@@ -134,35 +186,45 @@ def rho_search(args):
                   'periodic': args.periodic,
                   'rho': {}}
     data_types = ['train', 'val', 'test']
-    for rho in [0.25, 0.50, 0.75, 1.00, 1.25, 1.50, 1.75]:
+    for rho in [0.50, 0.75, 1.00, 1.25, 1.50, 1.75, 1.90]:
         args.rho = rho
         dictionary['rho'][f'{args.rho}'] = {}
         for data_type in data_types:
+
             data, problem = load_data(args, data_type)
             _, eapm_solver, Wb_proj = load_solvers(args, problem)
             print(f'eapm_solver.rho = {eapm_solver.rho}')
             update_rho_search_dict(data, data_type, eapm_solver, Wb_proj, args, dictionary)
+
     # construct a csv where each column is a different rho
     with open(f'./data/sanity_check/{args.dataset}_{args.precondition}{args.periodic}_rho_search.csv', 'w', newline='') as file:
         writer = csv.writer(file)
-        writer.writerow(['rho', 'avg proj num train', 'unconverged rate train',
-                         'avg proj num val', 'unconverged rate val',
-                         'avg proj num test', 'unconverged rate test',
-                         'avg proj num total', 'unconverged rate total'])
+        writer.writerow(['rho',
+                         'avg proj num train', 'unconverged rate train', 'avg proj time train',
+                         'avg proj num val', 'unconverged rate val', 'avg proj time val',
+                         'avg proj num test', 'unconverged rate test', 'avg proj time test',
+                         'avg proj num total', 'unconverged rate total', 'avg proj time total'
+                         ])
         for rho in dictionary['rho'].keys():
             writer.writerow([rho,
                              int(dictionary['rho'][rho]['avg proj num train']),
                              dictionary['rho'][rho]['unconverged rate train'],
+                             dictionary['rho'][rho]['avg proj time train'],
                              int(dictionary['rho'][rho]['avg proj num val']),
                              dictionary['rho'][rho]['unconverged rate val'],
+                             dictionary['rho'][rho]['avg proj time val'],
                              int(dictionary['rho'][rho]['avg proj num test']),
                              dictionary['rho'][rho]['unconverged rate test'],
+                             dictionary['rho'][rho]['avg proj time test'],
                              int((dictionary['rho'][rho]['avg proj num train'] +
                                   dictionary['rho'][rho]['avg proj num val'] +
                                   dictionary['rho'][rho]['avg proj num test']) / 3),
                              (dictionary['rho'][rho]['unconverged rate train'] +
                               dictionary['rho'][rho]['unconverged rate val'] +
-                              dictionary['rho'][rho]['unconverged rate test']) / 3])
+                              dictionary['rho'][rho]['unconverged rate test']) / 3,
+                             (dictionary['rho'][rho]['avg proj time train'] +
+                              dictionary['rho'][rho]['avg proj time val'] +
+                              dictionary['rho'][rho]['avg proj time test']) / 3])
         # having two empty rows for better readability
         writer.writerow([])
         writer.writerow([])
@@ -173,3 +235,4 @@ def rho_search(args):
         writer.writerow(['ineq_tol', args.ineq_tol])
         writer.writerow(['max_iter', args.max_iter])
         writer.writerow(['periodic', args.periodic])
+        writer.writerow(['device', device])

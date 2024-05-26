@@ -97,6 +97,54 @@ def method_default_args(dataset):
         defaults['precondition'] = 'none'
         defaults['periodic'] = False
 
+    if dataset == 'DCOPF_':
+        # dataset related parameters
+        defaults['truncate_idx'] = (4,1867)  # idx of tensor + 1, e.g. (1,39) --> (2,40)
+        defaults['primal_const_num'] = 9743
+        defaults['primal_var_num'] = 9980
+        defaults['primal_fx_idx'] = (0,2237)
+        defaults['dual_const_num'] = 2238
+        defaults['dual_var_num'] = 9743
+        defaults['dual_fx_idx'] = (0,9999999)  #todo: check this
+
+        # hidden layers related parameters
+        defaults['primal_hidden_dim'] = 512
+        defaults['primal_hidden_num'] = 3
+        defaults['dual_hidden_dim'] = 512
+        defaults['dual_hidden_num'] = 3
+        defaults['proj_hidden_dim'] = 512
+        defaults['proj_hidden_num'] = 2
+
+        # ALM and penalty related parameters
+        defaults['penalty_g'] = 50000
+        defaults['penalty_h'] = 50000
+
+        # training related parameters
+        defaults['loss_type'] = 'obj'
+        defaults['optimizer'] = 'Adam'
+        defaults['lr'] = 1e-3
+        defaults['weight_decay'] = 0.0
+        defaults['batch_size'] = 256
+        defaults['epochs'] = 20
+        defaults['data_generator'] = False
+        defaults['self_supervised'] = True
+
+        # evaluation related parameters
+        defaults['test_val_train'] = 'val'
+        defaults['job'] = 'training'
+
+        # project related parameters
+        defaults['max_iter'] = 200
+        defaults[ 'f_tol' ] = 1e-6
+        defaults['eq_tol'] = 1e-6
+        defaults['ineq_tol'] = 1e-6
+        defaults['projection'] = 'POCS'  # POCS, EAPM
+        defaults['rho'] = 1.0
+        defaults['learn2proj'] = False
+        defaults['proj_epochs'] = 500
+        defaults['precondition'] = 'none'  # none, Pock-Chambolle, Ruiz
+        defaults['periodic'] = False
+
     else:
         raise NotImplementedError
 
