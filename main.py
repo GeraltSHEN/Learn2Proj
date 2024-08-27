@@ -1,5 +1,5 @@
 from train import run_training
-from utils import load_data
+from utils import load_data_new, load_problem_new
 from pretrain import rho_search, baseline_pocs, data_sanity_check
 import argparse
 import os
@@ -57,8 +57,8 @@ def add_arguments():
     # project related parameters
     parser.add_argument("--max_iter", type=int)
     parser.add_argument("--f_tol", type=float)
-    parser.add_argument("--eq_tol", type=float)
-    parser.add_argument("--ineq_tol", type=float)
+    parser.add_argument("--eq_tol", type=float)  # not used, calculated using f_tol
+    parser.add_argument("--ineq_tol", type=float)  # not used, calculated using f_tol
     parser.add_argument("--projection", type=str)
     parser.add_argument("--rho", type=float)
     parser.add_argument("--learn2proj", type=bool)
@@ -119,7 +119,8 @@ def main(args):
     if not os.path.exists('./logs'):
         os.makedirs('./logs')
     if args.job == 'training':
-        data, problem = load_data(args)
+        problem = load_problem_new(args)
+        data = load_data_new(args)
         # run training
         run_training(args, data, problem)
     elif args.job == 'rho_search':
@@ -127,6 +128,7 @@ def main(args):
     elif args.job == 'baseline_pocs':
         baseline_pocs(args)
     elif args.job == 'data_sanity_check':
+        print('data_sanity_check disabled')
         data_sanity_check(args)
     elif args.job == 'make_datasets':
         pass

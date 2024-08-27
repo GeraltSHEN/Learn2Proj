@@ -61,11 +61,7 @@ def run_training(args, data, problem):
     print(f'----time required for {args.epochs} epochs training: {round(training_time / 3600)}hr----')
 
     # check the model on the test set
-    print(f'switching {args.test_val_train} dataset ')
-    args.test_val_train = 'test'
-    print(f'to {args.test_val_train} dataset')
-    data, problem = load_data(args)
-    scores = evaluate_model(args, data, problem)
+    scores = evaluate_model(args, data['test'], problem)
 
 
 def Learning(args, data, problem, model, optimizer):
@@ -223,7 +219,7 @@ def evaluate_model(args, data, problem):
     load_weights(model, args.model_id)
     model.eval()
     model.report_projection = True
-    for i, (inputs, targets) in enumerate(data['val']):
+    for i, (inputs, targets) in enumerate(data):
         inputs, targets = process_for_training(inputs, targets, args)
         start_time = time.time()
         z_star, z1, proj_num = model(inputs)

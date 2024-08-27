@@ -1,4 +1,4 @@
-from utils import load_problem, load_W_proj, process_for_training
+from utils import load_problem_new, load_data_new, load_W_proj, process_for_training
 import torch
 import models
 
@@ -14,44 +14,6 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 torch.set_default_dtype(torch.float64)
 
 
-def load_data(args, data_type):
-    problem, D1, D2 = load_problem(args)
-    assert problem.A.dtype == torch.float64
-
-    if data_type == 'train':
-        inputs = torch.load('./data/' + args.dataset + '/train/input_train.pt')
-        inputs = inputs * D1
-        if 'target_train.pt' not in os.listdir('./data/' + args.dataset + '/train/'):
-            print('supervised label not found, created a random one')
-            targets = torch.zeros((inputs.shape[0], problem.var_num))
-        else:
-            targets = torch.load('./data/' + args.dataset + '/train/' + '' + 'target_train.pt')
-
-    elif data_type == 'val':
-        inputs = torch.load('./data/' + args.dataset + '/val/input_val.pt')
-        inputs = inputs * D1
-        if 'target_val.pt' not in os.listdir('./data/' + args.dataset + '/val/'):
-            print('supervised label not found, created a random one')
-            targets = torch.zeros((inputs.shape[0], problem.var_num))
-        else:
-            targets = torch.load('./data/' + args.dataset + '/val/' + '' + 'target_val.pt')
-
-    elif data_type == 'test':
-        inputs = torch.load('./data/' + args.dataset + '/test/input_test.pt')
-        inputs = inputs * D1
-        if 'target_test.pt' not in os.listdir('./data/' + args.dataset + '/test/'):
-            print('supervised label not found, created a random one')
-            targets = torch.zeros((inputs.shape[0], problem.var_num))
-        else:
-            targets = torch.load('./data/' + args.dataset + '/test/' + '' + 'target_test.pt')
-
-    else:
-        raise ValueError('data_type should be train, val, or test')
-    dataset = TensorDataset(inputs, targets)
-    data = DataLoader(dataset, batch_size=1, shuffle=False)
-    return data, problem
-
-
 def load_solvers(args, problem):
     Wz_proj, Wb_proj = load_W_proj(args, problem)
     pocs_solver = models.POCS(problem.free_idx, problem.A, Wz_proj, args.max_iter, args.eq_tol, args.ineq_tol)
@@ -64,23 +26,25 @@ def load_solvers(args, problem):
 
 
 def data_sanity_check(args):
-    data_types = ['train', 'val', 'test']
-    for data_type in data_types:
-        data, problem = load_data(args, data_type)
-        assert problem.A.dtype == torch.float64
-        for i, (inputs, targets) in enumerate(data):
-            inputs, targets = process_for_training(inputs, targets, args)
-            assert inputs.dtype == torch.float64
-            assert targets.dtype == torch.float64
-            eq_residual = problem.eq_residual(targets, inputs)
-            ineq_residual = problem.ineq_residual(targets)
-            assert eq_residual.dtype == torch.float64
-            assert ineq_residual.dtype == torch.float64
-            eq_stopping_criterion = torch.mean(torch.abs(eq_residual), dim=0)
-            ineq_stopping_criterion = torch.mean(torch.abs(ineq_residual), dim=0)
-            if (eq_stopping_criterion > args.eq_tol).all() or (ineq_stopping_criterion > args.ineq_tol).all():
-                print('{} bad point {: .0f}: eq max violation: {: .5f}; ineq max violation: {: .5f}'.format(
-                    data_type, i, eq_stopping_criterion.max(), ineq_stopping_criterion.max()))
+    # warning: this function needs true labels of x_primal and y_dual
+    pass
+    # data_types = ['train', 'val', 'test']
+    # for data_type in data_types:
+    #     data, problem = load_data(args, data_type)
+    #     assert problem.A.dtype == torch.float64
+    #     for i, (inputs, targets) in enumerate(data):
+    #         inputs, targets = process_for_training(inputs, targets, args)
+    #         assert inputs.dtype == torch.float64
+    #         assert targets.dtype == torch.float64
+    #         eq_residual = problem.eq_residual(targets, inputs)
+    #         ineq_residual = problem.ineq_residual(targets)
+    #         assert eq_residual.dtype == torch.float64
+    #         assert ineq_residual.dtype == torch.float64
+    #         eq_stopping_criterion = torch.mean(torch.abs(eq_residual), dim=0)
+    #         ineq_stopping_criterion = torch.mean(torch.abs(ineq_residual), dim=0)
+    #         if (eq_stopping_criterion > args.eq_tol).all() or (ineq_stopping_criterion > args.ineq_tol).all():
+    #             print('{} bad point {: .0f}: eq max violation: {: .5f}; ineq max violation: {: .5f}'.format(
+    #                 data_type, i, eq_stopping_criterion.max(), ineq_stopping_criterion.max()))
 
 
 def projection_on_data(data, solver, Wb_proj, args):
@@ -122,11 +86,13 @@ def baseline_pocs(args):
                   'eq_tol': args.eq_tol,
                   'ineq_tol': args.ineq_tol,
                   'max_iter': args.max_iter}
+    problem = load_problem_new(args)
+    data = load_data_new(args)
     data_types = ['train', 'val', 'test']
     for data_type in data_types:
-        data, problem = load_data(args, data_type)
         pocs_solver, _, Wb_proj = load_solvers(args, problem)
-        avg_proj_num, unconverged_rate, unconverged_idx, proj_time = projection_on_data(data, pocs_solver, Wb_proj, args)
+        avg_proj_num, unconverged_rate, unconverged_idx, proj_time = projection_on_data(data[data_type], pocs_solver,
+                                                                                        Wb_proj, args)
         dictionary[f'avg proj num {data_type}'] = avg_proj_num
         dictionary[f'unconverged rate {data_type}'] = unconverged_rate
         dictionary[f'avg proj time {data_type}'] = proj_time
@@ -185,16 +151,18 @@ def rho_search(args):
                   'max_iter': args.max_iter,
                   'periodic': args.periodic,
                   'rho': {}}
+
+    problem = load_problem_new(args)
+    data = load_data_new(args)
     data_types = ['train', 'val', 'test']
+
     for rho in [0.50, 0.75, 1.00, 1.25, 1.50, 1.75, 1.90]:
         args.rho = rho
         dictionary['rho'][f'{args.rho}'] = {}
         for data_type in data_types:
-
-            data, problem = load_data(args, data_type)
             _, eapm_solver, Wb_proj = load_solvers(args, problem)
             print(f'eapm_solver.rho = {eapm_solver.rho}')
-            update_rho_search_dict(data, data_type, eapm_solver, Wb_proj, args, dictionary)
+            update_rho_search_dict(data[data_type], data_type, eapm_solver, Wb_proj, args, dictionary)
 
     # construct a csv where each column is a different rho
     with open(f'./data/sanity_check/{args.dataset}_{args.precondition}{args.periodic}_rho_search.csv', 'w', newline='') as file:
