@@ -1,6 +1,6 @@
 from train import run_training
 from utils import load_data_new, load_problem_new
-from pretrain import rho_search, baseline_pocs, data_sanity_check
+from pretrain import rho_search, baseline_pocs, baseline_nullspace, data_sanity_check
 import argparse
 import os
 import torch
@@ -74,7 +74,7 @@ def add_arguments():
 
 
 def complete_args(args):
-    defaults = default_args.method_default_args(args.dataset)
+    defaults = default_args.get_default_args(args.dataset)
     for key in defaults.keys():
         if eval('args.' + key) is None:
             exec('args.' + key + ' = defaults[key]')
@@ -127,6 +127,8 @@ def main(args):
         rho_search(args)
     elif args.job == 'baseline_pocs':
         baseline_pocs(args)
+    elif args.job == 'baseline_nullspace':
+        baseline_nullspace(args)
     elif args.job == 'data_sanity_check':
         print('data_sanity_check disabled')
         data_sanity_check(args)

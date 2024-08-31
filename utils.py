@@ -2,6 +2,7 @@ import torch
 import csv
 import json
 import numpy as np
+from scipy.linalg import null_space
 import torch.optim as optim
 import torch.nn.functional as F
 import models
@@ -109,8 +110,8 @@ def load_problem_new(args):
         raise ValueError('Invalid problem')
     print('==='*10)
     print(f'{args.problem} problem loaded')
-    print(f'A range: {A.values().min()} - {A.values().max()}')
-    print(f'scaled_A range: {scaled_A.values().min()} - {scaled_A.values().max()}')
+    print(f'A range: [{A.values().min()}, {A.values().max()}]')
+    print(f'scaled_A range: [{scaled_A.values().min()}, {scaled_A.values().max()}]')
     return problem
 
 
@@ -134,7 +135,8 @@ def load_data_new(args):
         data = {'train': train, 'val': val, 'test': test}
         return data
 
-    elif args.job in ['baseline_pocs', 'rho_search']:
+    elif args.job in ['baseline_pocs', 'baseline_nullspace', 'rho_search']:
+        print(f'Loading data for {args.job}')
         input_train, target_train = load_unfixed_params(args, 'train', False, True)
         input_val, target_val = load_unfixed_params(args, 'val', False, True)
         input_test, target_test = load_unfixed_params(args, 'test', False, True)
@@ -168,13 +170,14 @@ def load_model_new(args, problem):
 
     if args.model == 'primal_nn':
         Wz_proj, Wb_proj = load_W_proj(args, problem)
+        N = load_N(args, problem)
         model = models.OptProjNN(input_dim=input_dim, hidden_dim=hidden_dim,
                                  hidden_num=hidden_num, output_dim=output_dim,
                                  truncate_idx=problem.truncate_idx, free_idx=problem.free_idx,
-                                 A=problem.A,
+                                 A=problem.A, N=N,
                                  WzProj=Wz_proj, WbProj=Wb_proj,
                                  max_iter=args.max_iter, eq_tol=args.eq_tol, ineq_tol= args.ineq_tol,
-                                 projection=args.projection, rho=args.rho)
+                                 proj_method=args.projection, rho=args.rho)
 
         # if args.projection == 'POCS':
         #     model = models.PrimalNN(input_dim=input_dim, hidden_dim=hidden_dim,
@@ -242,6 +245,7 @@ def load_model_new(args, problem):
 
 
 def calc_QR_proj(A):
+    # warning: this function will be deprecated
     start = time.time()
     if A.is_sparse:
         Q_proj, R_proj = torch.linalg.qr(A.t().to_dense(), mode='reduced')
@@ -270,6 +274,7 @@ def calc_QR_proj(A):
 
 
 def load_QR_proj(args, problem):
+    # warning: this function will be deprecated
     if 'primal' in args.problem:
         extension = 'primal'
     elif 'dual' in args.problem:
@@ -290,6 +295,7 @@ def load_QR_proj(args, problem):
 
 
 def calc_chunk_proj(A):
+    # warning: this function will be deprecated
     assert A.is_sparse
     start = time.time()
     AAT = torch.sparse.mm(A, A.t())
@@ -303,6 +309,7 @@ def calc_chunk_proj(A):
 
 
 def load_chunk_proj(args, problem):
+    # warning: this function will be deprecated
     if 'primal' in args.problem:
         extension = 'primal'
     elif 'dual' in args.problem:
@@ -321,6 +328,7 @@ def load_chunk_proj(args, problem):
 
 
 def calc_L_proj(args, problem):
+    # warning: this function will be
     start = time.time()
     chunk = load_chunk_proj(args, problem)
     L = torch.linalg.cholesky(chunk)
@@ -333,6 +341,7 @@ def calc_L_proj(args, problem):
 
 
 def load_L_proj(args, problem):
+    # warning: this function will be deprecated
     if 'primal' in args.problem:
         extension = 'primal'
     elif 'dual' in args.problem:
@@ -348,6 +357,39 @@ def load_L_proj(args, problem):
         torch.save(L.detach().cpu(), './data/' + args.dataset + f'/{extension}_L_proj.pt')
         print(f'{extension}_L_proj.pt calculated and saved.')
         return L
+
+
+def calc_N(A):
+    """
+    return the orthonormal basis of the null space of A
+    """
+    # if A is in sparse format, change it into dense
+    if A.is_sparse:
+        A = A.to_dense()
+    start = time.time()
+    N = torch.from_numpy(null_space(A.detach().cpu().numpy())).to(device)
+    end = time.time()
+    print(f'N calculation time: {end - start:.4f}s, N shape: {N.shape}')
+    print_memory(N)
+    return N
+
+
+def load_N(args, problem):
+    if 'primal' in args.problem:
+        extension = 'primal'
+    elif 'dual' in args.problem:
+        extension = 'dual'
+    else:
+        raise ValueError('Invalid problem')
+    try:
+        N = torch.load('./data/' + args.dataset + f'/{extension}_N.pt').to(device)
+        return N
+    except:
+        print(f'{extension}_N.pt not found. Calculating...')
+        N = calc_N(problem.A)
+        torch.save(N.detach().cpu(), './data/' + args.dataset + f'/{extension}_N.pt')
+        print(f'{extension}_N.pt saved. Terminating.')
+        return N
 
 
 def calc_W_proj(A):
@@ -387,36 +429,36 @@ def load_W_proj(args, problem):
         return Wz_proj, Wb_proj
 
 
-def preconditioning(A, args):
-    if args.precondition == 'Pock-Chambolle':
-        print('Pock-Chambolle was disabled')
-        # row_norms = torch.norm(A, dim=1, p=1)
-        # col_norms = torch.norm(A, dim=0, p=1)
-        # D1 = torch.diag(torch.sqrt(row_norms))
-        # D2 = torch.diag(torch.sqrt(col_norms))
-    elif args.precondition == 'Ruiz':
-        print('Ruiz was disabled')
-        # row_norms = torch.norm(A, dim=1, p=float('inf'))
-        # col_norms = torch.norm(A, dim=0, p=float('inf'))
-        # D1 = torch.diag(torch.sqrt(row_norms))
-        # D2 = torch.diag(torch.sqrt(col_norms))
-    elif args.precondition == 'none':
-        # D1 = torch.eye(A.shape[0]).to(device)
-        # D2 = torch.eye(A.shape[1]).to(device)
-        D1 = torch.ones(A.shape[0]).to(device)
-        D2 = torch.ones(A.shape[1]).to(device)
-    else:
-        raise ValueError('Invalid precondition')
-    if isinstance(args.f_tol, float):
-        print(f'Scaling eq_tol by D1')
-        scale_tolerance(D1, args)
-        print(f'Scaled eq_tol range: ({args.eq_tol.min()} - {args.eq_tol.max()})')
-    return D1, D2
+# def preconditioning(A, args):
+#     if args.precondition == 'Pock-Chambolle':
+#         print('Pock-Chambolle was disabled')
+#         # row_norms = torch.norm(A, dim=1, p=1)
+#         # col_norms = torch.norm(A, dim=0, p=1)
+#         # D1 = torch.diag(torch.sqrt(row_norms))
+#         # D2 = torch.diag(torch.sqrt(col_norms))
+#     elif args.precondition == 'Ruiz':
+#         print('Ruiz was disabled')
+#         # row_norms = torch.norm(A, dim=1, p=float('inf'))
+#         # col_norms = torch.norm(A, dim=0, p=float('inf'))
+#         # D1 = torch.diag(torch.sqrt(row_norms))
+#         # D2 = torch.diag(torch.sqrt(col_norms))
+#     elif args.precondition == 'none':
+#         # D1 = torch.eye(A.shape[0]).to(device)
+#         # D2 = torch.eye(A.shape[1]).to(device)
+#         D1 = torch.ones(A.shape[0]).to(device)
+#         D2 = torch.ones(A.shape[1]).to(device)
+#     else:
+#         raise ValueError('Invalid precondition')
+#     if isinstance(args.f_tol, float):
+#         print(f'Scaling eq_tol by D1')
+#         scale_tolerance(D1, args)
+#         print(f'Scaled eq_tol range: ({args.eq_tol.min()} - {args.eq_tol.max()})')
+#     return D1, D2
 
 
-def scale_tolerance(D1, args):
-    scaled_eq_tolerance = args.f_tol * D1
-    args.eq_tol = scaled_eq_tolerance
+# def scale_tolerance(D1, args):
+#     scaled_eq_tolerance = args.f_tol * D1
+#     args.eq_tol = scaled_eq_tolerance
 
 
 # def load_problem(args):
@@ -511,111 +553,77 @@ def scale_tolerance(D1, args):
 #     return data_dict, problem
 
 
-def load_model(args, problem):
-    input_dim = problem.truncate_idx[1] - problem.truncate_idx[0]
-    output_dim = problem.var_num
-    if 'primal' in problem.name:
-        hidden_dim = args.primal_hidden_dim
-        hidden_num = args.primal_hidden_num
-    elif 'dual' in problem.name:
-        hidden_dim = args.dual_hidden_dim
-        hidden_num = args.dual_hidden_num
-    else:
-        raise ValueError('Invalid problem')
-
-    if args.model == 'primal_nn':
-        Wz_proj, Wb_proj = load_W_proj(args, problem)
-        model = models.OptProjNN(input_dim=input_dim, hidden_dim=hidden_dim,
-                                 hidden_num=hidden_num, output_dim=output_dim,
-                                 truncate_idx=problem.truncate_idx, free_idx=problem.free_idx,
-                                 A=problem.A,
-                                 WzProj=Wz_proj, WbProj=Wb_proj,
-                                 max_iter=args.max_iter, eq_tol=args.eq_tol, ineq_tol= args.ineq_tol,
-                                 projection=args.projection, rho=args.rho)
-
-        # if args.projection == 'POCS':
-        #     model = models.PrimalNN(input_dim=input_dim, hidden_dim=hidden_dim,
-        #                             hidden_num=hidden_num, output_dim=output_dim,
-        #                             truncate_idx=problem.truncate_idx, free_idx=problem.free_idx,
-        #                             A=problem.A,
-        #                             WzProj=Wz_proj, WbProj=Wb_proj,
-        #                             max_iter=args.max_iter, f_tol=args.f_tol)
-        # elif args.projection == 'EAPM':
-        #     model = models.PrimalEAPM(input_dim=input_dim, hidden_dim=hidden_dim,
-        #                               hidden_num=hidden_num, output_dim=output_dim,
-        #                               truncate_idx=problem.truncate_idx, free_idx=problem.free_idx,
-        #                               WzProj=Wz_proj, WbProj=Wb_proj,
-        #                               rho=args.rho, max_iter=args.max_iter, f_tol=args.f_tol, A=problem.A)
-
-    elif args.model == 'dual_nn':
-        Wz_proj, Wb_proj = load_W_proj(args, problem)
-        model = models.DualOptProjNN(input_dim=input_dim, hidden_dim=hidden_dim,
-                                     hidden_num=hidden_num, output_dim=output_dim,
-                                     truncate_idx=problem.truncate_idx, free_idx=problem.free_idx,
-                                     A=problem.A,
-                                     WzProj=Wz_proj, WbProj=Wb_proj,
-                                     max_iter=args.max_iter, eq_tol=args.eq_tol, ineq_tol= args.ineq_tol,
-                                     projection=args.projection, rho=args.rho,
-                                     b_dual=problem.b)
-
-        # if args.projection == 'POCS':
-        #     model = models.DualNN(input_dim=input_dim, hidden_dim=hidden_dim,
-        #                           hidden_num=hidden_num, output_dim=output_dim,
-        #                           truncate_idx=problem.truncate_idx, free_idx=problem.free_idx,
-        #                           A=problem.A, b=problem.b,
-        #                           WzProj=Wz_proj, WbProj=Wb_proj,
-        #                           max_iter=args.max_iter, f_tol=args.f_tol)
-        # elif args.projection == 'EAPM':
-        #     model = models.DualEAPM(input_dim=input_dim, hidden_dim=hidden_dim,
-        #                               hidden_num=hidden_num, output_dim=output_dim,
-        #                               truncate_idx=problem.truncate_idx, free_idx=problem.free_idx,
-        #                               WzProj=Wz_proj, WbProj=Wb_proj,
-        #                               rho=args.rho, max_iter=args.max_iter, f_tol=args.f_tol)
-
-    elif args.model == 'vanilla_nn':
-        model = models.VanillaNN(input_dim=input_dim, hidden_dim=hidden_dim,
-                                 hidden_num=hidden_num, output_dim=output_dim,
-                                 truncate_idx=problem.truncate_idx)
-    # elif args.model == 'dual_learn2proj':
-    #     assert args.learn2proj
-    #     Wz_proj, Wb_proj = load_W_proj(args, problem)
-    #     model = models.DualLearn2Proj(input_dim=input_dim, hidden_dim=hidden_dim,
-    #                                   hidden_num=hidden_num, output_dim=output_dim,
-    #                                   proj_hidden_dim=args.proj_hidden_dim, proj_hidden_num=args.proj_hidden_num,
-    #                                   truncate_idx=problem.truncate_idx, free_idx=problem.free_idx,
-    #                                   A=problem.A, b=problem.b,
-    #                                   WzProj=Wz_proj, WbProj=Wb_proj,
-    #                                   max_iter=args.max_iter, f_tol=args.f_tol)
-
-    else:
-        raise ValueError('Invalid model')
-    model = model.double().to(device)
-    return model
+# def load_model(args, problem):
+#     input_dim = problem.truncate_idx[1] - problem.truncate_idx[0]
+#     output_dim = problem.var_num
+#     if 'primal' in problem.name:
+#         hidden_dim = args.primal_hidden_dim
+#         hidden_num = args.primal_hidden_num
+#     elif 'dual' in problem.name:
+#         hidden_dim = args.dual_hidden_dim
+#         hidden_num = args.dual_hidden_num
+#     else:
+#         raise ValueError('Invalid problem')
+#
+#     if args.model == 'primal_nn':
+#         Wz_proj, Wb_proj = load_W_proj(args, problem)
+#         model = models.OptProjNN(input_dim=input_dim, hidden_dim=hidden_dim,
+#                                  hidden_num=hidden_num, output_dim=output_dim,
+#                                  truncate_idx=problem.truncate_idx, free_idx=problem.free_idx,
+#                                  A=problem.A,
+#                                  WzProj=Wz_proj, WbProj=Wb_proj,
+#                                  max_iter=args.max_iter, eq_tol=args.eq_tol, ineq_tol= args.ineq_tol,
+#                                  proj_method=args.projection, rho=args.rho)
+#
+#     elif args.model == 'dual_nn':
+#         Wz_proj, Wb_proj = load_W_proj(args, problem)
+#         model = models.DualOptProjNN(input_dim=input_dim, hidden_dim=hidden_dim,
+#                                      hidden_num=hidden_num, output_dim=output_dim,
+#                                      truncate_idx=problem.truncate_idx, free_idx=problem.free_idx,
+#                                      A=problem.A,
+#                                      WzProj=Wz_proj, WbProj=Wb_proj,
+#                                      max_iter=args.max_iter, eq_tol=args.eq_tol, ineq_tol= args.ineq_tol,
+#                                      projection=args.projection, rho=args.rho,
+#                                      b_dual=problem.b)
+#
+#     elif args.model == 'vanilla_nn':
+#         model = models.VanillaNN(input_dim=input_dim, hidden_dim=hidden_dim,
+#                                  hidden_num=hidden_num, output_dim=output_dim,
+#                                  truncate_idx=problem.truncate_idx)
+#
+#     else:
+#         raise ValueError('Invalid model')
+#     model = model.double().to(device)
+#     return model
 
 
-def get_optimizer(args, model, proj=False):
-    if proj:
-        params = model.projection_layers.parameters()
-        print(f'proj_optimizer for projection_layers')
-        # params = list(model[0].parameters()) + list(model[1].parameters())
-    else:
-        if args.learn2proj:
-            params = model.optimality_layers.parameters()
-            print(f'optimizer for optimality_layers')
-        else:
-            params = model.parameters()
-            print(f'optimizer for all layers')
-
-    if args.optimizer == 'Adam':
-        optimizer = optim.Adam(params, lr=args.lr, weight_decay=args.weight_decay)
-    elif args.optimizer == 'SGD':
-        optimizer = optim.SGD(params, lr=args.lr, weight_decay=args.weight_decay)
-    else:
-        raise ValueError('Invalid optimizer')
-    return optimizer
+# def get_optimizer(args, model, proj=False):
+#     if proj:
+#         params = model.projection_layers.parameters()
+#         print(f'proj_optimizer for projection_layers')
+#         # params = list(model[0].parameters()) + list(model[1].parameters())
+#     else:
+#         if args.learn2proj:
+#             params = model.optimality_layers.parameters()
+#             print(f'optimizer for optimality_layers')
+#         else:
+#             params = model.parameters()
+#             print(f'optimizer for all layers')
+#
+#     if args.optimizer == 'Adam':
+#         optimizer = optim.Adam(params, lr=args.lr, weight_decay=args.weight_decay)
+#     elif args.optimizer == 'SGD':
+#         optimizer = optim.SGD(params, lr=args.lr, weight_decay=args.weight_decay)
+#     else:
+#         raise ValueError('Invalid optimizer')
+#     return optimizer
 
 
 def get_optimizer_new(args, model):
+    """
+    register_post_accumulate_grad_hook to save gradient memory
+    https://pytorch.org/tutorials/intermediate/optimizer_step_in_backward_tutorial.html
+    """
     # Instead of having just *one* optimizer, we will have a ``dict`` of optimizers
     # for every parameter so we could reference them in our hook.
     if args.optimizer == 'Adam':

@@ -1,5 +1,5 @@
 
-def method_default_args(dataset):
+def get_default_args(dataset):
     defaults = {}
 
     if dataset == 'DCOPF':
@@ -88,7 +88,7 @@ def method_default_args(dataset):
 
         # project related parameters
         defaults['max_iter'] = 1000
-        defaults[ 'f_tol' ] = 1e-6
+        defaults['f_tol'] = 1e-6
         defaults['eq_tol'] = 1e-6
         defaults['ineq_tol'] = 1e-6
         defaults['rho'] = 1.0
@@ -97,8 +97,15 @@ def method_default_args(dataset):
         defaults['precondition'] = 'none'
         defaults['periodic'] = False
 
-    if dataset == 'DCOPF_':
+    elif dataset == 'DCOPF_':
         # dataset related parameters
+        # A: (9743, 9980)
+        # b: (9743,)
+        # N: (9980, 9980-9743=237)
+        # the N in the theorem will be 237, l_i <= <a_i, x> <= u_i, for all i in [1, 237]
+        # z: (9980)
+        # [z_free, z_nf] = (2237, 9980-2237)
+
         defaults['truncate_idx'] = (4,1867)  # idx of tensor + 1, e.g. (1,39) --> (2,40)
         defaults['primal_const_num'] = 9743
         defaults['primal_var_num'] = 9980
@@ -134,7 +141,7 @@ def method_default_args(dataset):
         defaults['job'] = 'training'
 
         # project related parameters
-        defaults['max_iter'] = 200
+        defaults['max_iter'] = 200  # 200 is totally fine for eapm
         defaults[ 'f_tol' ] = 1e-6
         defaults['eq_tol'] = 1e-6
         defaults['ineq_tol'] = 1e-6
