@@ -70,6 +70,8 @@ def add_arguments():
     parser.add_argument("--saveAllStats", default=True, type=bool)
     parser.add_argument("--resultSaveFreq", default=50, type=int)
 
+    parser.add_argument("--float64", default=False, type=bool)
+
     return parser.parse_args()
 
 
@@ -118,9 +120,15 @@ def main(args):
         os.makedirs('./data/results_summary')
     if not os.path.exists('./logs'):
         os.makedirs('./logs')
+
+    if args.float64:
+        torch.set_default_dtype(torch.float64)
+    else:
+        torch.set_default_dtype(torch.float32)
+
     if args.job == 'training':
         problem = load_problem_new(args)
-        data = load_data_new(args)
+        data = load_data_new(args, problem)
         # run training
         run_training(args, data, problem)
     elif args.job == 'rho_search':

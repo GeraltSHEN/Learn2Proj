@@ -7,7 +7,7 @@ import time
 #import torch.autograd.Function as Function
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
-torch.set_default_dtype(torch.float64)
+#torch.set_default_dtype(torch.float64)
 
 
 class OptimalityLayers(nn.Module):
@@ -100,7 +100,7 @@ class EAPM(nn.Module):
         self.ineq_tol = ineq_tol
         self.rho = rho
 
-    def stopping_criterion(self, z, b_0):
+    def stopping_criterion_old(self, z, b_0):
         # gurobi uses the 1. worst constraint violation 2. scale the tolerance by D1 @ tolerance
         # but gurobi does not use the eq_mean / eq_scale_mean
         # batch mean to avoid black sheep in training samples
@@ -112,31 +112,65 @@ class EAPM(nn.Module):
             ineq_stopping_criterion = torch.mean(torch.abs(ineq_residual), dim=0)  # (bsz, const_num) -> (const_num,)
             return ineq_stopping_criterion
 
+    def stopping_criterion(self, z, b_0):
+        with torch.no_grad():
+            eq_residual = z @ self.A.t() - b_0
+            eq_lhs = torch.mean(torch.abs(eq_residual), dim=0)
+            ineq_residual = torch.relu(-z[:, self.free_num:])
+            ineq_lhs = torch.mean(torch.abs(ineq_residual), dim=0)
+            lhs = torch.sqrt(eq_lhs.pow(2).sum() + ineq_lhs.pow(2).sum())
+            rhs = 1 + torch.sqrt(torch.mean(b_0, dim=0).pow(2).sum() + 0)
+
+            return lhs/rhs
+
     def forward(self, z, Bias_Proj, b_0):
         z = Bias_Proj + z @ self.Weight_Proj  # z0 \in set A
+
+        # print('\n\nA NEW POINT PROJECTION STARTS')
+        # eq_stopping_criterion = torch.mean(torch.abs(z @ self.A.t() - b_0), dim=0)
+        # print(f'\n\nthe eq_stopping_criterion (before loop) is {eq_stopping_criterion}')
+        # print(f'the number of eq violation {((eq_stopping_criterion <= self.eq_tol) == False).sum().item()}')
+        #
+        # z = Bias_Proj + z @ self.Weight_Proj  # z0 \in set A
+        # eq_stopping_criterion = torch.mean(torch.abs(z @ self.A.t() - b_0), dim=0)
+        # print(f'\n\nthe eq_stopping_criterion (before loop BUT 2ND) is {eq_stopping_criterion}')
+        # print(f'the number of eq violation {((eq_stopping_criterion <= self.eq_tol) == False).sum().item()}')
+
         curr_iter = 0
         while curr_iter <= self.max_iter:
             P2z = z.clone()
             P2z[:, self.free_num:] = F.relu(P2z[:, self.free_num:])
             P1P2z = Bias_Proj + P2z @ self.Weight_Proj
+
+            # print(f'\n\n=================')
+            # print(f'In iteration {curr_iter}')
+            # eq_stopping_criterion = torch.mean(torch.abs(P1P2z @ self.A.t() - b_0), dim=0)
+            # print(f'the eq_stopping_criterion (before numerical issue) is {eq_stopping_criterion}')
+            # print(f'the number of eq violation {((eq_stopping_criterion <= self.eq_tol)==False).sum().item()}')
+
             residual = P1P2z - z
             # compute the K
             mask = (z[:, self.free_num:] >= 0).all(dim=-1)
             K = torch.ones(residual.shape[0]).to(device)
             K[~mask] = (P2z[~mask] - z[~mask]).pow(2).sum(dim=-1) / residual[~mask].pow(2).sum(dim=-1)
-            # compute y_new (periodic centering)
-            # if curr_iter % 3 == 2:
-            #     z = z + self.rho / 2 * K.unsqueeze(-1) * residual
-            # else:
-            #     z = z + self.rho * K.unsqueeze(-1) * residual
-            # compute y_new
             z = z + self.rho * K.unsqueeze(-1) * residual
             # avoid numerical issue
             z = Bias_Proj + z @ self.Weight_Proj
+
+            # eq_stopping_criterion = torch.mean(torch.abs(z @ self.A.t() - b_0), dim=0)
+            # print(f'the eq_stopping_criterion (AFTER numerical issue) is {eq_stopping_criterion}')
+            # print(f'the number of eq violation {((eq_stopping_criterion <= self.eq_tol) == False).sum().item()}')
+
             curr_iter += 1
-            ineq_stopping_criterion = self.stopping_criterion(z, b_0)
-            if (ineq_stopping_criterion <= self.ineq_tol).all():
+            violation = self.stopping_criterion(z, b_0)
+            if violation <= self.ineq_tol:
                 break
+
+            # ineq_stopping_criterion = self.stopping_criterion(z, b_0)
+            # print(f'the ineq_stopping_criterion is {ineq_stopping_criterion}')
+            # print(f'the number of ineq violation {((ineq_stopping_criterion <= self.ineq_tol)==False).sum().item()}')
+            # if (ineq_stopping_criterion <= self.ineq_tol).all():
+            #     break
         z_star = z
         return z_star, curr_iter
 

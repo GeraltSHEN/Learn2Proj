@@ -149,7 +149,7 @@ def get_default_args(dataset):
         defaults['rho'] = 1.0
         defaults['learn2proj'] = False
         defaults['proj_epochs'] = 500
-        defaults['precondition'] = 'none'  # none, Pock-Chambolle, Ruiz
+        defaults['precondition'] = 'Ruiz'  # none, Pock-Chambolle, Ruiz
         defaults['periodic'] = False
 
     else:

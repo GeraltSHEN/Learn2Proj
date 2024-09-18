@@ -11,7 +11,7 @@ from problem import *
 import time
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
-torch.set_default_dtype(torch.float64)
+#torch.set_default_dtype(torch.float64)
 
 
 def print_sparsity(A):
@@ -34,6 +34,19 @@ def print_memory(A):
         print_sparsity(A)
 
 
+def adjust_precision(args, tensor, tensor_name=''):
+    print(tensor_name + 'tensor dtype:', tensor.dtype)
+    if not args.float64:
+        if tensor.dtype == torch.float64:
+            print(tensor_name + 'tensor new dtype: float32')
+            tensor = tensor.float()
+    else:
+        if tensor.dtype == torch.float32:
+            print(tensor_name + 'tensor new dtype: float64')
+            tensor = tensor.double()
+    return tensor
+
+
 def load_fixed_params(args):
     if args.problem == 'primal_lp':
         A_TYPE = "A_primal"
@@ -43,25 +56,30 @@ def load_fixed_params(args):
         bc_TYPE = "b_dual"
     else:
         raise ValueError('Invalid problem')
-    A = torch.load(f'./data/{args.dataset}/{A_TYPE}.pt')
+    A = torch.load(f'./data/{args.dataset}/{A_TYPE}_dense.pt')  # here we change it to dense
     b_or_c = torch.load(f'./data/{args.dataset}/{bc_TYPE}.pt')
+    A = adjust_precision(args, A, 'A_')
+    b_or_c = adjust_precision(args, b_or_c, 'b_or_c_')
+
     print(f'{A_TYPE} shape: {A.shape}, {bc_TYPE} shape: {b_or_c.shape}')
-    if A.is_sparse:
-        print(f'sparse {A_TYPE} (loaded) memory: {A.element_size() * A._nnz() / 1024 / 1024 / 1024:.2f} GB')
-        print(f'dense {A_TYPE} memory: {A.element_size() * A.nelement() / 1024 / 1024 / 1024:.2f} GB')
-    else:
-        print(f'dense {A_TYPE} (loaded) memory: {A.element_size() * A.nelement() / 1024 / 1024 / 1024:.2f} GB')
-        print(f'{A_TYPE} sparsity: {1 - torch.count_nonzero(A) / A.nelement()}')
-        A = A.to_sparse()
-        print(f'sparse {A_TYPE} (reloaded) memory: {A.element_size() * A._nnz() / 1024 / 1024 / 1024:.2f} GB')
-        torch.save(A, f'./data/{args.dataset}/{A_TYPE}.pt')
-        print(f'original dense {A_TYPE} is replaced and saved as sparse')
+    # if A.is_sparse:
+    #     print(f'sparse {A_TYPE} (loaded) memory: {A.element_size() * A._nnz() / 1024 / 1024 / 1024:.2f} GB')
+    #     print(f'dense {A_TYPE} memory: {A.element_size() * A.nelement() / 1024 / 1024 / 1024:.2f} GB')
+    # else:
+    #     print(f'dense {A_TYPE} (loaded) memory: {A.element_size() * A.nelement() / 1024 / 1024 / 1024:.2f} GB')
+    #     print(f'{A_TYPE} sparsity: {1 - torch.count_nonzero(A) / A.nelement()}')
+    #     A = A.to_sparse()
+    #     print(f'sparse {A_TYPE} (reloaded) memory: {A.element_size() * A._nnz() / 1024 / 1024 / 1024:.2f} GB')
+    #     torch.save(A, f'./data/{args.dataset}/{A_TYPE}.pt')
+    #     print(f'original dense {A_TYPE} is replaced and saved as sparse')
     return A, b_or_c
 
 
 def load_unfixed_params(args, DATA_TYPE, for_training=False, for_proj_check=False):
     assert args.self_supervised
     inputs = torch.load(f'./data/{args.dataset}/{DATA_TYPE}/input_{DATA_TYPE}.pt')
+    inputs = adjust_precision(args, inputs, 'inputs_')
+
     if for_training:
         targets = torch.zeros(inputs.shape[0])
     if for_proj_check:
@@ -69,11 +87,13 @@ def load_unfixed_params(args, DATA_TYPE, for_training=False, for_proj_check=Fals
         targets = torch.zeros((inputs.shape[0], var_num))
     else:
         targets = torch.load(f'./data/{args.dataset}/{DATA_TYPE}/self_target_{DATA_TYPE}.pt')
+
+    targets = adjust_precision(args, targets, 'targets_')
     print(f'input_{DATA_TYPE} shape: {inputs.shape}, target_{DATA_TYPE} shape: {targets.shape}')
     return inputs, targets
 
 
-def load_preconditions(args):
+def load_preconditions(args, A):
     if args.precondition == 'none':
         if 'primal' in args.problem:
             D1 = torch.ones(args.primal_const_num)
@@ -83,23 +103,50 @@ def load_preconditions(args):
             D2 = torch.ones(args.dual_var_num)
         else:
             raise ValueError('Invalid problem')
+
+    elif args.precondition == 'Pock-Chambolle':
+        row_norms = torch.norm(A, dim=1, p=1)
+        col_norms = torch.norm(A, dim=0, p=1)
+        D1 = torch.sqrt(row_norms)
+        D2 = torch.sqrt(col_norms)
+    elif args.precondition == 'Ruiz':
+        row_norms = torch.norm(A, dim=1, p=float('inf'))
+        col_norms = torch.norm(A, dim=0, p=float('inf'))
+        D1 = torch.sqrt(row_norms)
+        D2 = torch.sqrt(col_norms)
     else:
-        D1 = torch.load(f'./data/{args.dataset}/{args.precondition}_D1.pt')
-        D2 = torch.load(f'./data/{args.dataset}/{args.precondition}_D2.pt')
+        raise ValueError('Invalid precondition')
+    D1 = adjust_precision(args, D1, 'D1_')
+    D2 = adjust_precision(args, D2, 'D2_')
+    print(f'D1 shape: {D1.shape}, D2 shape: {D2.shape}')
+    if isinstance(args.f_tol, float):
+        print('===' * 10)
+        print(f'Scaling eq_tol by D1')
+        print('ineq_tol is not scaled because rhs is all 0')
+        scaled_eq_tolerance = args.f_tol * D1
+        args.eq_tol = scaled_eq_tolerance
+        args.ineq_tol = args.f_tol
+        print(f'Scaled eq_tol range: [{args.eq_tol.min()}, {args.eq_tol.max()}]')
+
+    # else:
+    #     #
+    #     D1 = torch.load(f'./data/{args.dataset}/{args.precondition}_D1.pt')
+    #     D2 = torch.load(f'./data/{args.dataset}/{args.precondition}_D2.pt')
+
     # scale tolerance
-    print('==='*10)
-    print('Scaling eq_tol by D1')
-    print('ineq_tol is not scaled because rhs is all 0')
-    scaled_eq_tolerance = args.f_tol * D1
-    args.eq_tol = scaled_eq_tolerance
-    args.ineq_tol = args.f_tol
+    # print('==='*10)
+    # print('Scaling eq_tol by D1')
+    # print('ineq_tol is not scaled because rhs is all 0')
+    # scaled_eq_tolerance = args.f_tol * D1
+    # args.eq_tol = scaled_eq_tolerance
+    # args.ineq_tol = args.f_tol
 
     return D1, D2
 
 
 def load_problem_new(args):
-    D1, D2 = load_preconditions(args)
     A, b_or_c = load_fixed_params(args)
+    D1, D2 = load_preconditions(args, A)
     scaled_A = D1[:, None] * A * D2
     scaled_b_or_c = D2 * b_or_c
     if 'primal' in args.problem:
@@ -110,20 +157,32 @@ def load_problem_new(args):
         raise ValueError('Invalid problem')
     print('==='*10)
     print(f'{args.problem} problem loaded')
-    print(f'A range: [{A.values().min()}, {A.values().max()}]')
-    print(f'scaled_A range: [{scaled_A.values().min()}, {scaled_A.values().max()}]')
+
+    def get_range(m):
+        if m.is_sparse:
+            m = m.to_dense()
+        m = m.flatten()
+        abs_values = torch.abs(m[m != 0])
+        return abs_values.min(), abs_values.max()
+    Al, Au = get_range(A)
+    scaled_Al, scaled_Au = get_range(scaled_A)
+    print(f'A range: [{Al}, {Au}]')
+    print(f'scaled_A range: [{scaled_Al}, {scaled_Au}]')
+
+    problem.D1 = D1
+    problem.D2 = D2
+
     return problem
 
 
-def load_data_new(args):
-    D1, D2 = load_preconditions(args)
+def load_data_new(args, problem):
     if args.job in ['training']:
         input_train, target_train = load_unfixed_params(args, 'train', True, False)
         input_val, target_val = load_unfixed_params(args, 'val', False, False)
         input_test, target_test = load_unfixed_params(args, 'test', False, False)
-        input_train = input_train * D1
-        input_val = input_val * D1
-        input_test = input_test * D1
+        input_train = input_train * problem.D1
+        input_val = input_val * problem.D1
+        input_test = input_test * problem.D1
 
         train_data = TensorDataset(input_train, target_train)
         val_data = TensorDataset(input_val, target_val)
@@ -140,13 +199,14 @@ def load_data_new(args):
         input_train, target_train = load_unfixed_params(args, 'train', False, True)
         input_val, target_val = load_unfixed_params(args, 'val', False, True)
         input_test, target_test = load_unfixed_params(args, 'test', False, True)
-        input_train = input_train * D1
-        input_val = input_val * D1
-        input_test = input_test * D1
+        input_train = input_train * problem.D1
+        input_val = input_val * problem.D1
+        input_test = input_test * problem.D1
 
-        train_data = TensorDataset(input_train, target_train)
-        val_data = TensorDataset(input_val, target_val)
-        test_data = TensorDataset(input_test, target_test)
+        # TODO: remember to change this back to full dataset
+        train_data = TensorDataset(input_train[:2], target_train[:2])
+        val_data = TensorDataset(input_val[:2], target_val[:2])
+        test_data = TensorDataset(input_test[:2], target_test[:2])
         train = DataLoader(train_data, batch_size=1, shuffle=False)
         val = DataLoader(val_data, batch_size=1, shuffle=False)
         test = DataLoader(test_data, batch_size=1, shuffle=False)
@@ -244,119 +304,119 @@ def load_model_new(args, problem):
 
 
 
-def calc_QR_proj(A):
-    # warning: this function will be deprecated
-    start = time.time()
-    if A.is_sparse:
-        Q_proj, R_proj = torch.linalg.qr(A.t().to_dense(), mode='reduced')
-    else:
-        Q_proj, R_proj = torch.linalg.qr(A.t(), mode='reduced')
-    R_proj = torch.inverse((R_proj.t()))
-    end = time.time()
-    print(f'A transpose shape: {A.t().shape}')
-    print(f'Q_proj shape: {Q_proj.shape}, R_proj shape: {R_proj.shape}')
-    print(f'QR_proj calculation time: {end - start:.4f}s')
-
-    print('==='*10)
-    print('Q_proj and R_proj in dense')
-    print_memory(Q_proj)
-    print_memory(R_proj)
-
-    # usually it is not worth it to convert Q_proj and R_proj to sparse
-    # print('==='*10)
-    # print('transform Q_proj and R_proj to sparse')
-    # Q_proj = Q_proj.to_sparse()
-    # R_proj = R_proj.to_sparse()
-    # print_memory(Q_proj)
-    # print_memory(R_proj)
-
-    return Q_proj, R_proj
-
-
-def load_QR_proj(args, problem):
-    # warning: this function will be deprecated
-    if 'primal' in args.problem:
-        extension = 'primal'
-    elif 'dual' in args.problem:
-        extension = 'dual'
-    else:
-        raise ValueError('Invalid problem')
-    try:
-        Q_proj = torch.load('./data/' + args.dataset + f'/{extension}_Q_proj.pt').to(device)
-        R_proj = torch.load('./data/' + args.dataset + f'/{extension}_R_proj.pt').to(device)
-        return Q_proj, R_proj
-    except:
-        print(f'{extension}_Q_proj.pt and {extension}_R_proj.pt not found. Calculating...')
-        Q_proj, R_proj = calc_QR_proj(problem.A)
-        torch.save(Q_proj.detach().cpu(), './data/' + args.dataset + f'/{extension}_Q_proj.pt')
-        torch.save(R_proj.detach().cpu(), './data/' + args.dataset + f'/{extension}_R_proj.pt')
-        print(f'{extension}_Q_proj.pt and {extension}_R_proj.pt saved. Terminating.')
-        return Q_proj, R_proj
+# def calc_QR_proj(A):
+#     # warning: this function will be deprecated
+#     start = time.time()
+#     if A.is_sparse:
+#         Q_proj, R_proj = torch.linalg.qr(A.t().to_dense(), mode='reduced')
+#     else:
+#         Q_proj, R_proj = torch.linalg.qr(A.t(), mode='reduced')
+#     R_proj = torch.inverse((R_proj.t()))
+#     end = time.time()
+#     print(f'A transpose shape: {A.t().shape}')
+#     print(f'Q_proj shape: {Q_proj.shape}, R_proj shape: {R_proj.shape}')
+#     print(f'QR_proj calculation time: {end - start:.4f}s')
+#
+#     print('==='*10)
+#     print('Q_proj and R_proj in dense')
+#     print_memory(Q_proj)
+#     print_memory(R_proj)
+#
+#     # usually it is not worth it to convert Q_proj and R_proj to sparse
+#     # print('==='*10)
+#     # print('transform Q_proj and R_proj to sparse')
+#     # Q_proj = Q_proj.to_sparse()
+#     # R_proj = R_proj.to_sparse()
+#     # print_memory(Q_proj)
+#     # print_memory(R_proj)
+#
+#     return Q_proj, R_proj
 
 
-def calc_chunk_proj(A):
-    # warning: this function will be deprecated
-    assert A.is_sparse
-    start = time.time()
-    AAT = torch.sparse.mm(A, A.t())
-    chunk = torch.inverse(AAT.to_dense())
-    end = time.time()
-    print(f'chunk_proj calculation time: {end - start:.4f}s')
-    print('==='*10)
-    print('chunk_proj in dense')
-    print_memory(chunk)
-    return chunk
+# def load_QR_proj(args, problem):
+#     # warning: this function will be deprecated
+#     if 'primal' in args.problem:
+#         extension = 'primal'
+#     elif 'dual' in args.problem:
+#         extension = 'dual'
+#     else:
+#         raise ValueError('Invalid problem')
+#     try:
+#         Q_proj = torch.load('./data/' + args.dataset + f'/{extension}_Q_proj.pt').to(device)
+#         R_proj = torch.load('./data/' + args.dataset + f'/{extension}_R_proj.pt').to(device)
+#         return Q_proj, R_proj
+#     except:
+#         print(f'{extension}_Q_proj.pt and {extension}_R_proj.pt not found. Calculating...')
+#         Q_proj, R_proj = calc_QR_proj(problem.A)
+#         torch.save(Q_proj.detach().cpu(), './data/' + args.dataset + f'/{extension}_Q_proj.pt')
+#         torch.save(R_proj.detach().cpu(), './data/' + args.dataset + f'/{extension}_R_proj.pt')
+#         print(f'{extension}_Q_proj.pt and {extension}_R_proj.pt saved. Terminating.')
+#         return Q_proj, R_proj
 
 
-def load_chunk_proj(args, problem):
-    # warning: this function will be deprecated
-    if 'primal' in args.problem:
-        extension = 'primal'
-    elif 'dual' in args.problem:
-        extension = 'dual'
-    else:
-        raise ValueError('Invalid problem')
-    try:
-        chunk = torch.load('./data/' + args.dataset + f'/{extension}_chunk.pt').to(device)
-        return chunk
-    except:
-        print(f'{extension}_chunk.pt not found. Calculating...')
-        chunk = calc_chunk_proj(problem.A)
-        torch.save(chunk.detach().cpu(), './data/' + args.dataset + f'/{extension}_chunk.pt')
-        print(f'{extension}_chunk.pt calculated and saved.')
-        return chunk
+# def calc_chunk_proj(A):
+#     # warning: this function will be deprecated
+#     assert A.is_sparse
+#     start = time.time()
+#     AAT = torch.sparse.mm(A, A.t())
+#     chunk = torch.inverse(AAT.to_dense())
+#     end = time.time()
+#     print(f'chunk_proj calculation time: {end - start:.4f}s')
+#     print('==='*10)
+#     print('chunk_proj in dense')
+#     print_memory(chunk)
+#     return chunk
 
 
-def calc_L_proj(args, problem):
-    # warning: this function will be
-    start = time.time()
-    chunk = load_chunk_proj(args, problem)
-    L = torch.linalg.cholesky(chunk)
-    end = time.time()
-    print(f'L_proj calculation time: {end - start:.4f}s')
-    print('===' * 10)
-    print('L_proj in dense')
-    print_memory(L)
-    return L
+# def load_chunk_proj(args, problem):
+#     # warning: this function will be deprecated
+#     if 'primal' in args.problem:
+#         extension = 'primal'
+#     elif 'dual' in args.problem:
+#         extension = 'dual'
+#     else:
+#         raise ValueError('Invalid problem')
+#     try:
+#         chunk = torch.load('./data/' + args.dataset + f'/{extension}_chunk.pt').to(device)
+#         return chunk
+#     except:
+#         print(f'{extension}_chunk.pt not found. Calculating...')
+#         chunk = calc_chunk_proj(problem.A)
+#         torch.save(chunk.detach().cpu(), './data/' + args.dataset + f'/{extension}_chunk.pt')
+#         print(f'{extension}_chunk.pt calculated and saved.')
+#         return chunk
 
 
-def load_L_proj(args, problem):
-    # warning: this function will be deprecated
-    if 'primal' in args.problem:
-        extension = 'primal'
-    elif 'dual' in args.problem:
-        extension = 'dual'
-    else:
-        raise ValueError('Invalid problem')
-    try:
-        L = torch.load('./data/' + args.dataset + f'/{extension}_L_proj.pt').to(device)
-        return L
-    except:
-        print(f'{extension}_L_proj.pt not found. Calculating...')
-        L = calc_L_proj(args, problem)
-        torch.save(L.detach().cpu(), './data/' + args.dataset + f'/{extension}_L_proj.pt')
-        print(f'{extension}_L_proj.pt calculated and saved.')
-        return L
+# def calc_L_proj(args, problem):
+#     # warning: this function will be
+#     start = time.time()
+#     chunk = load_chunk_proj(args, problem)
+#     L = torch.linalg.cholesky(chunk)
+#     end = time.time()
+#     print(f'L_proj calculation time: {end - start:.4f}s')
+#     print('===' * 10)
+#     print('L_proj in dense')
+#     print_memory(L)
+#     return L
+
+
+# def load_L_proj(args, problem):
+#     # warning: this function will be deprecated
+#     if 'primal' in args.problem:
+#         extension = 'primal'
+#     elif 'dual' in args.problem:
+#         extension = 'dual'
+#     else:
+#         raise ValueError('Invalid problem')
+#     try:
+#         L = torch.load('./data/' + args.dataset + f'/{extension}_L_proj.pt').to(device)
+#         return L
+#     except:
+#         print(f'{extension}_L_proj.pt not found. Calculating...')
+#         L = calc_L_proj(args, problem)
+#         torch.save(L.detach().cpu(), './data/' + args.dataset + f'/{extension}_L_proj.pt')
+#         print(f'{extension}_L_proj.pt calculated and saved.')
+#         return L
 
 
 def calc_N(A):
@@ -392,10 +452,20 @@ def load_N(args, problem):
         return N
 
 
-def calc_W_proj(A):
+def calc_W_proj(args, A):
     # warning: this function will be deprecated
     start = time.time()
-    chunk = torch.mm(A.t(), torch.inverse(torch.mm(A, A.t())))
+
+    PD = torch.mm(A, A.t())
+    # if args.precondition != 'none' and not args.float64:
+    #     PD += 1e-1 * torch.eye(PD.size(0))
+
+    try:
+        chunk = torch.mm(A.t(), torch.inverse(PD))
+    except:
+        A = A.to_dense()
+        chunk = torch.mm(A.t(), torch.inverse(PD))
+
     Wz_proj = torch.eye(A.shape[-1]).to(device) - torch.mm(chunk, A)
     Wb_proj = chunk
     end = time.time()
@@ -411,40 +481,50 @@ def load_W_proj(args, problem):
         extension = 'dual'
     else:
         raise ValueError('Invalid problem')
-    # Wz_proj, Wb_proj = calc_W_proj(problem.A)
-    # torch.save(Wz_proj.detach().cpu(), './data/' + args.dataset + f'/{extension}_Wz_proj.pt')
-    # torch.save(Wb_proj.detach().cpu(), './data/' + args.dataset + f'/{extension}_Wb_proj.pt')
-    # print(f'{extension}_Wz_proj.pt and {extension}_Wb_proj.pt saved. Terminating.')
-    # return Wz_proj, Wb_proj
     try:
-        Wz_proj = torch.load('./data/' + args.dataset + f'/{extension}_Wz_proj.pt').to(device)
-        Wb_proj = torch.load('./data/' + args.dataset + f'/{extension}_Wb_proj.pt').to(device)
+        Wz_proj = torch.load('./data/' + args.dataset + f'/{extension}_Wz_proj_{args.float64}_{args.precondition}.pt').to(device)
+        Wb_proj = torch.load('./data/' + args.dataset + f'/{extension}_Wb_proj_{args.float64}_{args.precondition}.pt').to(device)
+        Wz_proj = adjust_precision(args, Wz_proj, 'Wz_proj_')
+        Wb_proj = adjust_precision(args, Wb_proj, 'Wb_proj_')
         return Wz_proj, Wb_proj
     except:
-        print(f'{extension}_Wz_proj.pt and {extension}_Wb_proj.pt not found. Calculating...')
-        Wz_proj, Wb_proj = calc_W_proj(problem.A)
-        torch.save(Wz_proj.detach().cpu(), './data/' + args.dataset + f'/{extension}_Wz_proj.pt')
-        torch.save(Wb_proj.detach().cpu(), './data/' + args.dataset + f'/{extension}_Wb_proj.pt')
+        print(f'{extension}_Wz_proj_{args.float64}_{args.precondition}.pt and {extension}_Wb_proj_{args.float64}_{args.precondition}.pt not found. Calculating...')
+        Wz_proj, Wb_proj = calc_W_proj(args, problem.A)
+        Wz_proj = adjust_precision(args, Wz_proj, 'Wz_proj_')
+        Wb_proj = adjust_precision(args, Wb_proj, 'Wb_proj_')
+        torch.save(Wz_proj.detach().cpu(), './data/' + args.dataset + f'/{extension}_Wz_proj_{args.float64}_{args.precondition}.pt')
+        torch.save(Wb_proj.detach().cpu(), './data/' + args.dataset + f'/{extension}_Wb_proj_{args.float64}_{args.precondition}.pt')
         print(f'{extension}_Wz_proj.pt and {extension}_Wb_proj.pt saved. Terminating.')
         return Wz_proj, Wb_proj
+    # try:
+    #     Wz_proj = torch.load('./data/' + args.dataset + f'/{extension}_Wz_proj.pt').to(device)
+    #     Wb_proj = torch.load('./data/' + args.dataset + f'/{extension}_Wb_proj.pt').to(device)
+    #     Wz_proj = adjust_precision(args, Wz_proj, 'Wz_proj_')
+    #     Wb_proj = adjust_precision(args, Wb_proj, 'Wb_proj_')
+    #     return Wz_proj, Wb_proj
+    # except:
+    #     print(f'{extension}_Wz_proj.pt and {extension}_Wb_proj.pt not found. Calculating...')
+    #     Wz_proj, Wb_proj = calc_W_proj(problem.A)
+    #     Wz_proj = adjust_precision(args, Wz_proj, 'Wz_proj_')
+    #     Wb_proj = adjust_precision(args, Wb_proj, 'Wb_proj_')
+    #     torch.save(Wz_proj.detach().cpu(), './data/' + args.dataset + f'/{extension}_Wz_proj.pt')
+    #     torch.save(Wb_proj.detach().cpu(), './data/' + args.dataset + f'/{extension}_Wb_proj.pt')
+    #     print(f'{extension}_Wz_proj.pt and {extension}_Wb_proj.pt saved. Terminating.')
+    #     return Wz_proj, Wb_proj
 
 
 # def preconditioning(A, args):
 #     if args.precondition == 'Pock-Chambolle':
-#         print('Pock-Chambolle was disabled')
-#         # row_norms = torch.norm(A, dim=1, p=1)
-#         # col_norms = torch.norm(A, dim=0, p=1)
-#         # D1 = torch.diag(torch.sqrt(row_norms))
-#         # D2 = torch.diag(torch.sqrt(col_norms))
+#         row_norms = torch.norm(A, dim=1, p=1)
+#         col_norms = torch.norm(A, dim=0, p=1)
+#         D1 = torch.diag(torch.sqrt(row_norms))
+#         D2 = torch.diag(torch.sqrt(col_norms))
 #     elif args.precondition == 'Ruiz':
-#         print('Ruiz was disabled')
-#         # row_norms = torch.norm(A, dim=1, p=float('inf'))
-#         # col_norms = torch.norm(A, dim=0, p=float('inf'))
-#         # D1 = torch.diag(torch.sqrt(row_norms))
-#         # D2 = torch.diag(torch.sqrt(col_norms))
+#         row_norms = torch.norm(A, dim=1, p=float('inf'))
+#         col_norms = torch.norm(A, dim=0, p=float('inf'))
+#         D1 = torch.diag(torch.sqrt(row_norms))
+#         D2 = torch.diag(torch.sqrt(col_norms))
 #     elif args.precondition == 'none':
-#         # D1 = torch.eye(A.shape[0]).to(device)
-#         # D2 = torch.eye(A.shape[1]).to(device)
 #         D1 = torch.ones(A.shape[0]).to(device)
 #         D2 = torch.ones(A.shape[1]).to(device)
 #     else:
@@ -452,15 +532,15 @@ def load_W_proj(args, problem):
 #     if isinstance(args.f_tol, float):
 #         print(f'Scaling eq_tol by D1')
 #         scale_tolerance(D1, args)
-#         print(f'Scaled eq_tol range: ({args.eq_tol.min()} - {args.eq_tol.max()})')
+#         print(f'Scaled eq_tol range: [{args.eq_tol.min()}, {args.eq_tol.max()}]')
 #     return D1, D2
-
-
+#
+#
 # def scale_tolerance(D1, args):
 #     scaled_eq_tolerance = args.f_tol * D1
 #     args.eq_tol = scaled_eq_tolerance
-
-
+#
+#
 # def load_problem(args):
 #     if args.problem == 'primal_lp':
 #         A_primal = torch.load('./data/' + args.dataset + '/A_primal.pt').to(device)
@@ -494,8 +574,8 @@ def load_W_proj(args, problem):
 #         return problem, D1.detach().cpu(), D2.detach().cpu()
 #     else:
 #         raise ValueError('Invalid problem')
-
-
+#
+#
 # def load_data(args):
 #     problem, D1, D2 = load_problem(args)
 #
