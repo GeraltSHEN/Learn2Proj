@@ -56,22 +56,28 @@ class POCS(nn.Module):
         self.eq_tol = eq_tol
         self.ineq_tol = ineq_tol
 
-    def stopping_criterion(self, z, b_0):
+    def stopping_criterion_old(self, z, b_0):
         # gurobi uses the 1. worst constraint violation 2. scale the tolerance by D1 @ tolerance
         # but gurobi does not use the eq_mean / eq_scale_mean
         # batch mean to avoid black sheep in training samples
         with torch.no_grad():
             # eq_residual = z @ self.A.t() - b_0
-            # eq_rhs = b_0
-            # eq_mean = torch.norm(eq_residual, p=2, dim=-1).mean()
-            # eq_scale_mean = 1 + torch.norm(eq_rhs, p=2, dim=-1).mean()
-            # eq_stopping_criterion = eq_mean / eq_scale_mean
             # eq_stopping_criterion = torch.mean(torch.abs(eq_residual), dim=0)  # (bsz, const_num) -> (const_num,)
 
             ineq_residual = torch.relu(-z[:, self.free_num:])
-            # ineq_stopping_criterion = torch.norm(ineq_residual, p=2, dim=-1).mean()
             ineq_stopping_criterion = torch.mean(torch.abs(ineq_residual), dim=0)  # (bsz, const_num) -> (const_num,)
             return ineq_stopping_criterion
+
+    def stopping_criterion(self, z, b_0):
+        with torch.no_grad():
+            eq_residual = z @ self.A.t() - b_0
+            eq_lhs = torch.mean(torch.abs(eq_residual), dim=0)
+            ineq_residual = torch.relu(-z[:, self.free_num:])
+            ineq_lhs = torch.mean(torch.abs(ineq_residual), dim=0)
+            lhs = torch.sqrt(eq_lhs.pow(2).sum() + ineq_lhs.pow(2).sum())
+            rhs = 1 + torch.sqrt(torch.mean(b_0, dim=0).pow(2).sum() + 0)
+
+            return lhs/rhs
 
     def forward(self, z, Bias_Proj, b_0):
         z = Bias_Proj + z @ self.Weight_Proj  # z0 \in set A
@@ -80,9 +86,10 @@ class POCS(nn.Module):
             P2z = z.clone()
             P2z[:, self.free_num:] = F.relu(P2z[:, self.free_num:])
             z = Bias_Proj + P2z @ self.Weight_Proj
+
             curr_iter += 1
-            ineq_stopping_criterion = self.stopping_criterion(z, b_0)
-            if (ineq_stopping_criterion <= self.ineq_tol).all():
+            violation = self.stopping_criterion(z, b_0)
+            if violation <= self.ineq_tol:
                 break
         z_star = z
         return z_star, curr_iter
@@ -187,7 +194,7 @@ class PeriodicEAPM(nn.Module):
         self.ineq_tol = ineq_tol
         self.rho = rho
 
-    def stopping_criterion(self, z, b_0):
+    def stopping_criterion_old(self, z, b_0):
         # gurobi uses the 1. worst constraint violation 2. scale the tolerance by D1 @ tolerance
         # but gurobi does not use the eq_mean / eq_scale_mean
         # batch mean to avoid black sheep in training samples
@@ -198,6 +205,17 @@ class PeriodicEAPM(nn.Module):
             ineq_residual = torch.relu(-z[:, self.free_num:])
             ineq_stopping_criterion = torch.mean(torch.abs(ineq_residual), dim=0)  # (bsz, const_num) -> (const_num,)
             return ineq_stopping_criterion
+
+    def stopping_criterion(self, z, b_0):
+        with torch.no_grad():
+            eq_residual = z @ self.A.t() - b_0
+            eq_lhs = torch.mean(torch.abs(eq_residual), dim=0)
+            ineq_residual = torch.relu(-z[:, self.free_num:])
+            ineq_lhs = torch.mean(torch.abs(ineq_residual), dim=0)
+            lhs = torch.sqrt(eq_lhs.pow(2).sum() + ineq_lhs.pow(2).sum())
+            rhs = 1 + torch.sqrt(torch.mean(b_0, dim=0).pow(2).sum() + 0)
+
+            return lhs/rhs
 
     def forward(self, z, Bias_Proj, b_0):
         z = Bias_Proj + z @ self.Weight_Proj  # z0 \in set A
@@ -220,109 +238,94 @@ class PeriodicEAPM(nn.Module):
             # z = z + self.rho * K.unsqueeze(-1) * residual
             # avoid numerical issue
             z = Bias_Proj + z @ self.Weight_Proj
+
             curr_iter += 1
-            ineq_stopping_criterion = self.stopping_criterion(z, b_0)
-            if (ineq_stopping_criterion <= self.ineq_tol).all():
+            violation = self.stopping_criterion(z, b_0)
+            if violation <= self.ineq_tol:
                 break
         z_star = z
         return z_star, curr_iter
 
 
-class NullSpace(nn.Module):
-    """
-    z := Bias_Proj + z @ self.Weight_Proj # now z in set A
-    N: orthogonal basis of the null space of A (todo: Check the packages for this)
-    see derivation in 草稿纸 in ipad: s_star = N^T ReLu(-z)
-    s_star: the s that makes z_star = z + N s_star >= 0 (of course A z_star = b)
-    Therefore, z_star = z + N N^T ReLu(-z)
-    """
-    def __init__(self, free_idx, A, N, WzProj, max_iter, eq_tol, ineq_tol, rho=1.0):
-        super(NullSpace, self).__init__()
+class LDRPM(nn.Module):
+    def __init__(self, free_idx, A, WzProj, Q, z0, eq_tol, ineq_tol):
+        super(LDRPM, self).__init__()
 
         self.free_num = free_idx[1] + 1
         self.A = A.requires_grad_(False)
-        self.N = N.requires_grad_(False)
         self.Weight_Proj = WzProj.t().requires_grad_(False)
-        self.max_iter = max_iter
+        self.Q = Q.t().requires_grad_(False)
+        self.z0 = z0.requires_grad_(False)
         self.eq_tol = eq_tol
         self.ineq_tol = ineq_tol
-        self.rho = rho
 
     def stopping_criterion(self, z, b_0):
-        # gurobi uses the 1. worst constraint violation 2. scale the tolerance by D1 @ tolerance
-        # but gurobi does not use the eq_mean / eq_scale_mean
-        # batch mean to avoid black sheep in training samples
         with torch.no_grad():
+            eq_residual = z @ self.A.t() - b_0
+            eq_lhs = torch.mean(torch.abs(eq_residual), dim=0)
             ineq_residual = torch.relu(-z[:, self.free_num:])
-            ineq_stopping_criterion = torch.mean(torch.abs(ineq_residual), dim=0)  # (bsz, const_num) -> (const_num,)
-            return ineq_stopping_criterion
+            ineq_lhs = torch.mean(torch.abs(ineq_residual), dim=0)
+            lhs = torch.sqrt(eq_lhs.pow(2).sum() + ineq_lhs.pow(2).sum())
+            rhs = 1 + torch.sqrt(torch.mean(b_0, dim=0).pow(2).sum() + 0)
+
+            return lhs/rhs
 
     def forward(self, z, Bias_Proj, b_0):
-        z = Bias_Proj + z @ self.Weight_Proj  # z0 \in set A
-        z = z + -z @ self.N @ self.N.t()
-        curr_iter = 0
-        while curr_iter <= self.max_iter:
-            P2z = z.clone()
-            P2z[:, self.free_num:] = F.relu(P2z[:, self.free_num:])
-            z = Bias_Proj + P2z @ self.Weight_Proj
-            z = z + -z @ self.N @ self.N.t()
-            curr_iter += 1
-            ineq_stopping_criterion = self.stopping_criterion(z, b_0)
-            if (ineq_stopping_criterion <= self.ineq_tol).all():
-                break
-        z_star = z
-        return z_star, curr_iter
+        z_LDR = self.z0 + b_0 @ self.Q  # (bsz, const_num) @ (const_num, var_num) -> (bsz, var_num)
+        z_eq = Bias_Proj + z @ self.Weight_Proj  # z0 \in set A
 
+        alphas = - z_eq / (z_LDR - z_eq)  # (bsz, var_num)
+        alpha = torch.max(alphas, dim=1).values  # (bsz,)
+        print(f'the alphas is {alphas}')
+        print(f'the alpha is {alpha}')
+        alpha = torch.tensor([[0.97]])
+        z_star = alpha * z_LDR + (1 - alpha) * z_eq
+        return z_star, 0
 
-
-
-
-
-        # # todo: integrate nullspace into eapm
-        # z = Bias_Proj + z @ self.Weight_Proj  # z0 \in set A
-        #
-        # # null space block
-        # # z_f, z_nf = z[:, :self.free_num], z[:, self.free_num:]
-        # # s = -z_nf @ self.N
-        # # z_nf = z_nf + s @ self.N.t()
-        # # z = torch.cat((z_f, z_nf), dim=-1)
-        # z = z + -z @ self.N @ self.N.t()
-        # # null space block
-        #
-        # curr_iter = 0
-        # while curr_iter <= self.max_iter:
-        #     P2z = z.clone()
-        #     P2z[:, self.free_num:] = F.relu(P2z[:, self.free_num:])
-        #     P1P2z = Bias_Proj + P2z @ self.Weight_Proj
-        #
-        #     # null space block
-        #     # P1P2z_f, P1P2z_nf = P1P2z[:, :self.free_num], P1P2z[:, self.free_num:]
-        #     # s = -P1P2z_nf @ self.N
-        #     # P1P2z_nf = P1P2z_nf + s @ self.N.t()
-        #     # P1P2z = torch.cat((P1P2z_f, P1P2z_nf), dim=-1)
-        #     P1P2z = P1P2z + -P1P2z @ self.N @ self.N.t()
-        #     # null space block
-        #
-        #     residual = P1P2z - z
-        #     # compute the K
-        #     mask = (z[:, self.free_num:] >= 0).all(dim=-1)
-        #     K = torch.ones(residual.shape[0]).to(device)
-        #     K[~mask] = (P2z[~mask] - z[~mask]).pow(2).sum(dim=-1) / residual[~mask].pow(2).sum(dim=-1)
-        #     # compute y_new (periodic centering)
-        #     # if curr_iter % 3 == 2:
-        #     #     z = z + self.rho / 2 * K.unsqueeze(-1) * residual
-        #     # else:
-        #     #     z = z + self.rho * K.unsqueeze(-1) * residual
-        #     # compute y_new
-        #     z = z + self.rho * K.unsqueeze(-1) * residual
-        #     # avoid numerical issue
-        #     z = Bias_Proj + z @ self.Weight_Proj
-        #     curr_iter += 1
-        #     ineq_stopping_criterion = self.stopping_criterion(z, b_0)
-        #     if (ineq_stopping_criterion <= self.ineq_tol).all():
-        #         break
-        # z_star = z
-        # return z_star, curr_iter
+# class NullSpace(nn.Module):
+#     """
+#     z := Bias_Proj + z @ self.Weight_Proj # now z in set A
+#     N: orthogonal basis of the null space of A
+#     see derivation in 草稿纸 in ipad: s_star = N^T ReLu(-z)
+#     s_star: the s that makes z_star = z + N s_star >= 0 (of course A z_star = b)
+#     Therefore, z_star = z + N N^T ReLu(-z)
+#     """
+#     def __init__(self, free_idx, A, N, WzProj, max_iter, eq_tol, ineq_tol, rho=1.0):
+#         super(NullSpace, self).__init__()
+#
+#         self.free_num = free_idx[1] + 1
+#         self.A = A.requires_grad_(False)
+#         self.N = N.requires_grad_(False)
+#         self.Weight_Proj = WzProj.t().requires_grad_(False)
+#         self.max_iter = max_iter
+#         self.eq_tol = eq_tol
+#         self.ineq_tol = ineq_tol
+#         self.rho = rho
+#
+#     def stopping_criterion(self, z, b_0):
+#         # gurobi uses the 1. worst constraint violation 2. scale the tolerance by D1 @ tolerance
+#         # but gurobi does not use the eq_mean / eq_scale_mean
+#         # batch mean to avoid black sheep in training samples
+#         with torch.no_grad():
+#             ineq_residual = torch.relu(-z[:, self.free_num:])
+#             ineq_stopping_criterion = torch.mean(torch.abs(ineq_residual), dim=0)  # (bsz, const_num) -> (const_num,)
+#             return ineq_stopping_criterion
+#
+#     def forward(self, z, Bias_Proj, b_0):
+#         z = Bias_Proj + z @ self.Weight_Proj  # z0 \in set A
+#         z = z + -z @ self.N @ self.N.t()
+#         curr_iter = 0
+#         while curr_iter <= self.max_iter:
+#             P2z = z.clone()
+#             P2z[:, self.free_num:] = F.relu(P2z[:, self.free_num:])
+#             z = Bias_Proj + P2z @ self.Weight_Proj
+#             z = z + -z @ self.N @ self.N.t()
+#             curr_iter += 1
+#             ineq_stopping_criterion = self.stopping_criterion(z, b_0)
+#             if (ineq_stopping_criterion <= self.ineq_tol).all():
+#                 break
+#         z_star = z
+#         return z_star, curr_iter
 
 
 class OptProjNN(nn.Module):
@@ -343,8 +346,6 @@ class OptProjNN(nn.Module):
         elif proj_method == 'PeriodicEAPM':
             # todo: the code in may doesn't have this line. Make sure the code in PeriodicEAPM is correct
             self.projection = PeriodicEAPM(free_idx, A, WzProj, max_iter, eq_tol, ineq_tol, rho)
-        elif proj_method == 'NullSpace':
-            self.projection = NullSpace(free_idx, A, N, WzProj, max_iter, eq_tol, ineq_tol)
         else:
             raise ValueError('Invalid projection method')
 

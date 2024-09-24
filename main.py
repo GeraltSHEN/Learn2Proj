@@ -1,6 +1,6 @@
 from train import run_training
 from utils import load_data_new, load_problem_new
-from pretrain import rho_search, baseline_pocs, baseline_nullspace, data_sanity_check
+from pretrain import rho_search, baseline_pocs, data_sanity_check, run_proj_exp
 import argparse
 import os
 import torch
@@ -135,8 +135,8 @@ def main(args):
         rho_search(args)
     elif args.job == 'baseline_pocs':
         baseline_pocs(args)
-    elif args.job == 'baseline_nullspace':
-        baseline_nullspace(args)
+    elif args.job == 'run_proj_exp':
+        run_proj_exp(args)
     elif args.job == 'data_sanity_check':
         print('data_sanity_check disabled')
         data_sanity_check(args)

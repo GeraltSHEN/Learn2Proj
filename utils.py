@@ -194,7 +194,7 @@ def load_data_new(args, problem):
         data = {'train': train, 'val': val, 'test': test}
         return data
 
-    elif args.job in ['baseline_pocs', 'baseline_nullspace', 'rho_search']:
+    elif args.job in ['baseline_pocs', 'run_proj_exp', 'rho_search']:
         print(f'Loading data for {args.job}')
         input_train, target_train = load_unfixed_params(args, 'train', False, True)
         input_val, target_val = load_unfixed_params(args, 'val', False, True)
@@ -457,8 +457,6 @@ def calc_W_proj(args, A):
     start = time.time()
 
     PD = torch.mm(A, A.t())
-    # if args.precondition != 'none' and not args.float64:
-    #     PD += 1e-1 * torch.eye(PD.size(0))
 
     try:
         chunk = torch.mm(A.t(), torch.inverse(PD))
@@ -496,21 +494,15 @@ def load_W_proj(args, problem):
         torch.save(Wb_proj.detach().cpu(), './data/' + args.dataset + f'/{extension}_Wb_proj_{args.float64}_{args.precondition}.pt')
         print(f'{extension}_Wz_proj.pt and {extension}_Wb_proj.pt saved. Terminating.')
         return Wz_proj, Wb_proj
-    # try:
-    #     Wz_proj = torch.load('./data/' + args.dataset + f'/{extension}_Wz_proj.pt').to(device)
-    #     Wb_proj = torch.load('./data/' + args.dataset + f'/{extension}_Wb_proj.pt').to(device)
-    #     Wz_proj = adjust_precision(args, Wz_proj, 'Wz_proj_')
-    #     Wb_proj = adjust_precision(args, Wb_proj, 'Wb_proj_')
-    #     return Wz_proj, Wb_proj
-    # except:
-    #     print(f'{extension}_Wz_proj.pt and {extension}_Wb_proj.pt not found. Calculating...')
-    #     Wz_proj, Wb_proj = calc_W_proj(problem.A)
-    #     Wz_proj = adjust_precision(args, Wz_proj, 'Wz_proj_')
-    #     Wb_proj = adjust_precision(args, Wb_proj, 'Wb_proj_')
-    #     torch.save(Wz_proj.detach().cpu(), './data/' + args.dataset + f'/{extension}_Wz_proj.pt')
-    #     torch.save(Wb_proj.detach().cpu(), './data/' + args.dataset + f'/{extension}_Wb_proj.pt')
-    #     print(f'{extension}_Wz_proj.pt and {extension}_Wb_proj.pt saved. Terminating.')
-    #     return Wz_proj, Wb_proj
+
+
+def load_LDR(args, problem):
+    # warning: this function will be deprecated
+    Q_LDR = torch.load('./data/' + args.dataset + f'/Q_LDR.pt').to(device)
+    z0_LDR = torch.load('./data/' + args.dataset + f'/z0_LDR.pt').to(device)
+    Q_LDR = adjust_precision(args, Q_LDR, 'Q_LDR_')
+    z0_LDR = adjust_precision(args, z0_LDR, 'z0_LDR_')
+    return Q_LDR, z0_LDR
 
 
 # def preconditioning(A, args):

@@ -1,6 +1,6 @@
+import torch
 import pandas as pd
 import numpy
-import torch
 import os
 import pickle
 
@@ -175,6 +175,42 @@ def get_DCOPF_data_tensor():
     # torch.save(dual_target_train.detach().cpu(), csv_path + 'train/dual_target_train.pt')
     # torch.save(dual_target_val.detach().cpu(), csv_path + 'val/dual_target_val.pt')
     # torch.save(dual_target_test.detach().cpu(), csv_path + 'test/dual_target_test.pt')
+
+
+
+def get_Smallest_data_tensor():
+    dataset = 'Smallest'
+    csv_path = 'data/' + dataset + '/'
+    A_primal = torch.tensor(pd.read_csv(csv_path + 'A_case14.csv', header=None).values)
+    c_primal = torch.tensor(pd.read_csv(csv_path + 'c_case14.csv', header=None).values).squeeze()
+    b_primal = torch.tensor(pd.read_csv(csv_path + 'b_case14.csv', header=None).values).view(1, -1)
+    Q_LDR = torch.tensor(pd.read_csv(csv_path + 'Q.csv', header=None).values)
+    z0_LDR = torch.tensor(pd.read_csv(csv_path + 'z0.csv', header=None).values).squeeze()
+
+    torch.save(A_primal.detach().cpu(), csv_path + 'A_primal.pt')
+    torch.save(c_primal.detach().cpu(), csv_path + 'c_primal.pt')
+    torch.save(b_primal.detach().cpu(), csv_path + 'b_primal.pt')  # note that we only have one b
+    torch.save(Q_LDR.detach().cpu(), csv_path + 'Q_LDR.pt')
+    torch.save(z0_LDR.detach().cpu(), csv_path + 'z0_LDR.pt')
+
+    train_size = int(0.8 * b_primal.size(0))
+    val_size = (b_primal.size(0) - train_size) // 2
+    test_size = b_primal.size(0) - train_size - val_size
+
+    # input_train, input_val, input_test = torch.split(b_primal, [train_size, val_size, test_size], dim=0)
+    # self_target_train, self_target_val, self_target_test = torch.split(cost_true, [train_size, val_size, test_size], dim=0)
+
+    input_train, input_val, input_test = b_primal, b_primal, b_primal
+    cost_true = torch.zeros((1,))
+    self_target_train, self_target_val, self_target_test = cost_true, cost_true, cost_true
+
+    torch.save(input_train.detach().cpu(), csv_path + 'train/input_train.pt')
+    torch.save(input_val.detach().cpu(), csv_path + 'val/input_val.pt')
+    torch.save(input_test.detach().cpu(), csv_path + 'test/input_test.pt')
+
+    torch.save(self_target_train.detach().cpu(), csv_path + 'train/self_target_train.pt')
+    torch.save(self_target_val.detach().cpu(), csv_path + 'val/self_target_val.pt')
+    torch.save(self_target_test.detach().cpu(), csv_path + 'test/self_target_test.pt')
 
 
 def get_DC3_data_csv(dataset):
