@@ -7,7 +7,6 @@ import time
 #import torch.autograd.Function as Function
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
-#torch.set_default_dtype(torch.float64)
 
 
 class OptimalityLayers(nn.Module):
@@ -274,11 +273,33 @@ class LDRPM(nn.Module):
         z_LDR = self.z0 + b_0 @ self.Q  # (bsz, const_num) @ (const_num, var_num) -> (bsz, var_num)
         z_eq = Bias_Proj + z @ self.Weight_Proj  # z0 \in set A
 
-        alphas = - z_eq / (z_LDR - z_eq)  # (bsz, var_num)
-        alpha = torch.max(alphas, dim=1).values  # (bsz,)
-        print(f'the alphas is {alphas}')
-        print(f'the alpha is {alpha}')
-        alpha = torch.tensor([[0.97]])
+        s = z_LDR - z_eq
+        mask_geq, mask_leq = s>0, s<0
+        alphas = - z_eq / s  # (bsz, var_num)
+        """
+        Note that alphas * mask results in (bsz, var_num) tensor where the elements that are not in the mask are 0
+        
+        if s>0, then alpha >= -z_eq / s where z_eq can be positive or negative so that rhs can be positive or negative
+        as we want to take the maximum, and let alpha in range of [0, 1], 
+        when the maximum of rhs is positive, then the 0s in the indexes where s<=0 won't affect the maximum
+        when the maximum of rhs is negative, then the 0s in the indexes where s<=0 can force the maximum to be 0
+        
+        if s<0, then alpha <= -z_eq / s where z_eq must be positive if s = (z_LDR - z_eq) <0 so that rhs must be positive
+        as we want to take the minimum, and let alpha in range of [0, 1], 
+        when the minimum of rhs is positive (always), then 0s in the indexes where s>=0 will affect the minimum
+        so we need to change default values that are not in the mask to be 1
+        """
+        alphas_geq = alphas * mask_geq
+        alphas_leq = alphas * mask_leq
+        # change the default values that are not in the mask to be 1
+        alphas_leq[~mask_leq] = 1.0
+        alpha_lower = torch.max(alphas_geq, dim=1).values  # (bsz, )
+        alpha_upper = torch.min(alphas_leq, dim=1).values  # (bsz, )
+        alpha = torch.where(alpha_lower <= alpha_upper, alpha_lower, torch.ones_like(alpha_lower))
+        # #print(f'alphas is {alphas}')
+        # print(f'alpha_lower is {alpha_lower}')
+        # print(f'alpha_upper is {alpha_upper}')
+        # print(f'alpha is {alpha}')
         z_star = alpha * z_LDR + (1 - alpha) * z_eq
         return z_star, 0
 

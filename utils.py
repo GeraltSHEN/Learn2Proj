@@ -204,9 +204,9 @@ def load_data_new(args, problem):
         input_test = input_test * problem.D1
 
         # TODO: remember to change this back to full dataset
-        train_data = TensorDataset(input_train[:2], target_train[:2])
-        val_data = TensorDataset(input_val[:2], target_val[:2])
-        test_data = TensorDataset(input_test[:2], target_test[:2])
+        train_data = TensorDataset(input_train[:100], target_train[:100])
+        val_data = TensorDataset(input_val[:100], target_val[:100])
+        test_data = TensorDataset(input_test[:100], target_test[:100])
         train = DataLoader(train_data, batch_size=1, shuffle=False)
         val = DataLoader(val_data, batch_size=1, shuffle=False)
         test = DataLoader(test_data, batch_size=1, shuffle=False)
