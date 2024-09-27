@@ -204,9 +204,9 @@ def load_data_new(args, problem):
         input_test = input_test * problem.D1
 
         # TODO: remember to change this back to full dataset
-        train_data = TensorDataset(input_train[:100], target_train[:100])
-        val_data = TensorDataset(input_val[:100], target_val[:100])
-        test_data = TensorDataset(input_test[:100], target_test[:100])
+        train_data = TensorDataset(input_train[:10], target_train[:10])
+        val_data = TensorDataset(input_val[:10], target_val[:10])
+        test_data = TensorDataset(input_test[:10], target_test[:10])
         train = DataLoader(train_data, batch_size=1, shuffle=False)
         val = DataLoader(val_data, batch_size=1, shuffle=False)
         test = DataLoader(test_data, batch_size=1, shuffle=False)
@@ -216,7 +216,6 @@ def load_data_new(args, problem):
 
 
 def load_model_new(args, problem):
-    # todo: this is a todo left in May. Make sure to check this
     input_dim = problem.truncate_idx[1] - problem.truncate_idx[0]
     output_dim = problem.var_num
     if 'primal' in problem.name:
@@ -230,28 +229,17 @@ def load_model_new(args, problem):
 
     if args.model == 'primal_nn':
         Wz_proj, Wb_proj = load_W_proj(args, problem)
-        N = load_N(args, problem)
+        Q, z0 = load_LDR(args, problem)
+        if args.projection == 'LDRPM' and args.precondition != 'none':
+            raise ValueError('LDRPM does not support preconditioning, because Q and z0 in LDR are not scaled')
+
         model = models.OptProjNN(input_dim=input_dim, hidden_dim=hidden_dim,
                                  hidden_num=hidden_num, output_dim=output_dim,
                                  truncate_idx=problem.truncate_idx, free_idx=problem.free_idx,
-                                 A=problem.A, N=N,
+                                 A=problem.A, Q=Q, z0=z0,
                                  WzProj=Wz_proj, WbProj=Wb_proj,
-                                 max_iter=args.max_iter, eq_tol=args.eq_tol, ineq_tol= args.ineq_tol,
+                                 max_iter=args.max_iter, eq_tol=args.eq_tol, ineq_tol=args.ineq_tol,
                                  proj_method=args.projection, rho=args.rho)
-
-        # if args.projection == 'POCS':
-        #     model = models.PrimalNN(input_dim=input_dim, hidden_dim=hidden_dim,
-        #                             hidden_num=hidden_num, output_dim=output_dim,
-        #                             truncate_idx=problem.truncate_idx, free_idx=problem.free_idx,
-        #                             A=problem.A,
-        #                             WzProj=Wz_proj, WbProj=Wb_proj,
-        #                             max_iter=args.max_iter, f_tol=args.f_tol)
-        # elif args.projection == 'EAPM':
-        #     model = models.PrimalEAPM(input_dim=input_dim, hidden_dim=hidden_dim,
-        #                               hidden_num=hidden_num, output_dim=output_dim,
-        #                               truncate_idx=problem.truncate_idx, free_idx=problem.free_idx,
-        #                               WzProj=Wz_proj, WbProj=Wb_proj,
-        #                               rho=args.rho, max_iter=args.max_iter, f_tol=args.f_tol, A=problem.A)
 
     elif args.model == 'dual_nn':
         Wz_proj, Wb_proj = load_W_proj(args, problem)
@@ -260,23 +248,9 @@ def load_model_new(args, problem):
                                      truncate_idx=problem.truncate_idx, free_idx=problem.free_idx,
                                      A=problem.A,
                                      WzProj=Wz_proj, WbProj=Wb_proj,
-                                     max_iter=args.max_iter, eq_tol=args.eq_tol, ineq_tol= args.ineq_tol,
+                                     max_iter=args.max_iter, eq_tol=args.eq_tol, ineq_tol=args.ineq_tol,
                                      projection=args.projection, rho=args.rho,
                                      b_dual=problem.b)
-
-        # if args.projection == 'POCS':
-        #     model = models.DualNN(input_dim=input_dim, hidden_dim=hidden_dim,
-        #                           hidden_num=hidden_num, output_dim=output_dim,
-        #                           truncate_idx=problem.truncate_idx, free_idx=problem.free_idx,
-        #                           A=problem.A, b=problem.b,
-        #                           WzProj=Wz_proj, WbProj=Wb_proj,
-        #                           max_iter=args.max_iter, f_tol=args.f_tol)
-        # elif args.projection == 'EAPM':
-        #     model = models.DualEAPM(input_dim=input_dim, hidden_dim=hidden_dim,
-        #                               hidden_num=hidden_num, output_dim=output_dim,
-        #                               truncate_idx=problem.truncate_idx, free_idx=problem.free_idx,
-        #                               WzProj=Wz_proj, WbProj=Wb_proj,
-        #                               rho=args.rho, max_iter=args.max_iter, f_tol=args.f_tol)
 
     elif args.model == 'vanilla_nn':
         model = models.VanillaNN(input_dim=input_dim, hidden_dim=hidden_dim,
@@ -295,7 +269,8 @@ def load_model_new(args, problem):
 
     else:
         raise ValueError('Invalid model')
-    model = model.double().to(device)
+
+    model = model.to(device)
     return model
 
 
@@ -497,7 +472,6 @@ def load_W_proj(args, problem):
 
 
 def load_LDR(args, problem):
-    # warning: this function will be deprecated
     Q_LDR = torch.load('./data/' + args.dataset + f'/Q_LDR.pt').to(device)
     z0_LDR = torch.load('./data/' + args.dataset + f'/z0_LDR.pt').to(device)
     Q_LDR = adjust_precision(args, Q_LDR, 'Q_LDR_')

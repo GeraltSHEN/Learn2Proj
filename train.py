@@ -35,7 +35,7 @@ def self_supervised_generator(args, data, num_points, random_range):
 
 
 def run_training(args, data, problem):
-    model = load_model(args, problem)
+    model = load_model_new(args, problem)
     print(f'----- {args.model_id} in {args.dataset} dataset -----')
     print('#params:', sum(p.numel() for p in model.parameters()))
     optimizer = get_optimizer_new(args, model)
@@ -49,7 +49,8 @@ def run_training(args, data, problem):
     start_time = time.time()
     ##############################################################################################################
     if args.learn2proj:
-        proj_optimizer = get_optimizer(args, model, proj=True)
+        pass
+        # proj_optimizer = get_optimizer(args, model, proj=True)
         # Learning_learn2proj(args, data, problem, model, optimizer, proj_optimizer)
     else:
         Learning(args, data, problem, model, optimizer)
@@ -215,7 +216,7 @@ def checkpoint(model, best, args, epoch_stats, epoch):
 
 def evaluate_model(args, data, problem):
     test_stats = {}
-    model = load_model(args, problem)
+    model = load_model_new(args, problem)
     load_weights(model, args.model_id)
     model.eval()
     model.report_projection = True

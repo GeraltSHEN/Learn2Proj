@@ -300,7 +300,7 @@ class LDRPM(nn.Module):
         # print(f'alpha_lower is {alpha_lower}')
         # print(f'alpha_upper is {alpha_upper}')
         # print(f'alpha is {alpha}')
-        z_star = alpha * z_LDR + (1 - alpha) * z_eq
+        z_star = z_LDR * alpha.unsqueeze(1) + z_eq * (1 - alpha).unsqueeze(1)
         return z_star, 0
 
 # class NullSpace(nn.Module):
@@ -351,15 +351,15 @@ class LDRPM(nn.Module):
 
 class OptProjNN(nn.Module):
     def __init__(self, input_dim, hidden_dim, hidden_num, output_dim,
-                 truncate_idx, free_idx, A, N, WzProj, WbProj,
+                 truncate_idx, free_idx, A, Q, z0, WzProj, WbProj,
                  max_iter, eq_tol, ineq_tol, proj_method='POCS', rho=1.0):
         super(OptProjNN, self).__init__()
 
         self.optimality_layers = OptimalityLayers(input_dim, hidden_dim, hidden_num, output_dim, truncate_idx)
-        self.init_projection(free_idx, A, N, WzProj, max_iter, eq_tol, ineq_tol, proj_method, rho)
+        self.init_projection(free_idx, A, Q, z0, WzProj, max_iter, eq_tol, ineq_tol, proj_method, rho)
         self.WbProj = WbProj.requires_grad_(False)
 
-    def init_projection(self, free_idx, A, N, WzProj, max_iter, eq_tol, ineq_tol, proj_method, rho):
+    def init_projection(self, free_idx, A, Q, z0, WzProj, max_iter, eq_tol, ineq_tol, proj_method, rho):
         if proj_method == 'POCS':
             self.projection = POCS(free_idx, A, WzProj, max_iter, eq_tol, ineq_tol)
         elif proj_method == 'EAPM':
@@ -367,6 +367,8 @@ class OptProjNN(nn.Module):
         elif proj_method == 'PeriodicEAPM':
             # todo: the code in may doesn't have this line. Make sure the code in PeriodicEAPM is correct
             self.projection = PeriodicEAPM(free_idx, A, WzProj, max_iter, eq_tol, ineq_tol, rho)
+        elif proj_method == 'LDRPM':
+            self.projection = LDRPM(free_idx, A, WzProj, Q, z0, eq_tol, ineq_tol)
         else:
             raise ValueError('Invalid projection method')
 
@@ -400,9 +402,6 @@ class DualOptProjNN(nn.Module):
         z, _, _ = self.optimality_layers(b_primal)
         z_star, proj_num = self.projection(z, self.Bias_Proj, b_primal)
         return z_star, z, proj_num
-
-
-
 
 
 class VanillaNN(nn.Module):

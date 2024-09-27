@@ -218,7 +218,7 @@ def get_default_args(dataset):
         defaults['lr'] = 1e-3
         defaults['weight_decay'] = 0.0
         defaults['batch_size'] = 256
-        defaults['epochs'] = 20
+        defaults['epochs'] = 60
         defaults['data_generator'] = False
         defaults['self_supervised'] = True
 

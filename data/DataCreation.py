@@ -184,8 +184,9 @@ def get_case39_data_tensor():
     b_primal = torch.tensor(pd.read_csv(csv_path + 'btest_case39.csv', header=None).values).t()
     Q_LDR = torch.tensor(pd.read_csv(csv_path + 'Q_case39.csv', header=None).values)
     z0_LDR = torch.tensor(pd.read_csv(csv_path + 'z0_case39.csv', header=None).values).squeeze()
+    cost_true = torch.tensor(pd.read_csv(csv_path + 'cost_true_case39.csv', header=None).values).squeeze()
 
-    torch.save(A_primal.detach().cpu(), csv_path + 'A_primal.pt')
+    torch.save(A_primal.detach().cpu(), csv_path + 'A_primal_dense.pt')
     torch.save(c_primal.detach().cpu(), csv_path + 'c_primal.pt')
     torch.save(Q_LDR.detach().cpu(), csv_path + 'Q_LDR.pt')
     torch.save(z0_LDR.detach().cpu(), csv_path + 'z0_LDR.pt')
@@ -195,16 +196,16 @@ def get_case39_data_tensor():
     test_size = b_primal.size(0) - train_size - val_size
 
     input_train, input_val, input_test = torch.split(b_primal, [train_size, val_size, test_size], dim=0)
-    # self_target_train, self_target_val, self_target_test = torch.split(cost_true, [train_size, val_size, test_size], dim=0)
+    self_target_train, self_target_val, self_target_test = torch.split(cost_true, [train_size, val_size, test_size], dim=0)
 
 
     torch.save(input_train.detach().cpu(), csv_path + 'train/input_train.pt')
     torch.save(input_val.detach().cpu(), csv_path + 'val/input_val.pt')
     torch.save(input_test.detach().cpu(), csv_path + 'test/input_test.pt')
-    #
-    # torch.save(self_target_train.detach().cpu(), csv_path + 'train/self_target_train.pt')
-    # torch.save(self_target_val.detach().cpu(), csv_path + 'val/self_target_val.pt')
-    # torch.save(self_target_test.detach().cpu(), csv_path + 'test/self_target_test.pt')
+
+    torch.save(self_target_train.detach().cpu(), csv_path + 'train/self_target_train.pt')
+    torch.save(self_target_val.detach().cpu(), csv_path + 'val/self_target_val.pt')
+    torch.save(self_target_test.detach().cpu(), csv_path + 'test/self_target_test.pt')
 
 def get_Smallest_data_tensor():
     dataset = 'Smallest'
