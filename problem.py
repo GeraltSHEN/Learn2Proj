@@ -103,8 +103,9 @@ class PrimalLP:
         return x @ self.A.t() - b
 
     def ineq_residual(self, x):
-        fx, s = torch.split(x, [self._free_num, self._var_num - self._free_num], dim=-1)
-        return torch.relu(-s)
+        # fx, s = torch.split(x, [self._free_num, self._var_num - self._free_num], dim=-1)
+        # return torch.relu(-s)
+        return torch.relu(-x[:, self.free_num:])
 
 
 class DualLP:
@@ -208,8 +209,9 @@ class DualLP:
         return y @ self.A.t() - self.b(None)
 
     def ineq_residual(self, y):
-        fx, s = torch.split(y, [self._free_num, self._var_num - self._free_num], dim=-1)
-        return torch.relu(-s)
+        # fx, s = torch.split(y, [self._free_num, self._var_num - self._free_num], dim=-1)
+        # return torch.relu(-s)
+        return torch.relu(-y[:, self.free_num:])
 
 
 

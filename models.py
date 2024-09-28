@@ -55,18 +55,6 @@ class POCS(nn.Module):
         self.eq_tol = eq_tol
         self.ineq_tol = ineq_tol
 
-    def stopping_criterion_old(self, z, b_0):
-        # gurobi uses the 1. worst constraint violation 2. scale the tolerance by D1 @ tolerance
-        # but gurobi does not use the eq_mean / eq_scale_mean
-        # batch mean to avoid black sheep in training samples
-        with torch.no_grad():
-            # eq_residual = z @ self.A.t() - b_0
-            # eq_stopping_criterion = torch.mean(torch.abs(eq_residual), dim=0)  # (bsz, const_num) -> (const_num,)
-
-            ineq_residual = torch.relu(-z[:, self.free_num:])
-            ineq_stopping_criterion = torch.mean(torch.abs(ineq_residual), dim=0)  # (bsz, const_num) -> (const_num,)
-            return ineq_stopping_criterion
-
     def stopping_criterion(self, z, b_0):
         with torch.no_grad():
             eq_residual = z @ self.A.t() - b_0
@@ -193,18 +181,6 @@ class PeriodicEAPM(nn.Module):
         self.ineq_tol = ineq_tol
         self.rho = rho
 
-    def stopping_criterion_old(self, z, b_0):
-        # gurobi uses the 1. worst constraint violation 2. scale the tolerance by D1 @ tolerance
-        # but gurobi does not use the eq_mean / eq_scale_mean
-        # batch mean to avoid black sheep in training samples
-        with torch.no_grad():
-            # eq_residual = z @ self.A.t() - b_0
-            # eq_stopping_criterion = torch.mean(torch.abs(eq_residual), dim=0)  # (bsz, const_num) -> (const_num,)
-
-            ineq_residual = torch.relu(-z[:, self.free_num:])
-            ineq_stopping_criterion = torch.mean(torch.abs(ineq_residual), dim=0)  # (bsz, const_num) -> (const_num,)
-            return ineq_stopping_criterion
-
     def stopping_criterion(self, z, b_0):
         with torch.no_grad():
             eq_residual = z @ self.A.t() - b_0
@@ -233,8 +209,6 @@ class PeriodicEAPM(nn.Module):
                 z = z + self.rho / 2 * K.unsqueeze(-1) * residual
             else:
                 z = z + self.rho * K.unsqueeze(-1) * residual
-            # # compute y_new
-            # z = z + self.rho * K.unsqueeze(-1) * residual
             # avoid numerical issue
             z = Bias_Proj + z @ self.Weight_Proj
 
