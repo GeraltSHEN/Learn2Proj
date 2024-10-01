@@ -62,12 +62,12 @@ def projection_on_data(data, solver, Wb_proj, args):
     for i, (inputs, targets) in enumerate(data):
         inputs, targets = process_for_training(inputs, targets, args)
         with torch.no_grad():
-            zero_z = torch.zeros_like(targets)
+            rand_z = torch.randn_like(targets)
             b_primal = inputs
             Bias_Proj = b_primal @ Wb_proj  # has been transposed
         # let's count the projection time
         start = time.time()
-        z_star, proj_num = solver(zero_z, Bias_Proj, b_primal)
+        z_star, proj_num, alpha = solver(rand_z, Bias_Proj, b_primal)
         measures['total_time'] = measures['total_time'] + time.time() - start
         measures['avg_proj_num'] += proj_num
         measures['violation'] += solver.stopping_criterion(z_star, b_primal).item()

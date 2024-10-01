@@ -184,6 +184,9 @@ def load_data_new(args, problem):
         input_val = input_val * problem.D1
         input_test = input_test * problem.D1
 
+        problem.obj_example = (target_val.sum() + target_test.sum()) / (len(target_val) + len(target_test))
+        print(f'example objective value: {problem.obj_example}')
+
         train_data = TensorDataset(input_train, target_train)
         val_data = TensorDataset(input_val, target_val)
         test_data = TensorDataset(input_test, target_test)
@@ -472,8 +475,14 @@ def load_W_proj(args, problem):
 
 
 def load_LDR(args, problem):
-    Q_LDR = torch.load('./data/' + args.dataset + f'/Q_LDR.pt').to(device)
-    z0_LDR = torch.load('./data/' + args.dataset + f'/z0_LDR.pt').to(device)
+    if args.ldr_type == 'feas':
+        Q_LDR = torch.load('./data/' + args.dataset + f'/Q_LDR.pt').to(device)
+        z0_LDR = torch.load('./data/' + args.dataset + f'/z0_LDR.pt').to(device)
+    elif args.ldr_type == 'opt':
+        Q_LDR = torch.load('./data/' + args.dataset + f'/Q_opt_LDR.pt').to(device)
+        z0_LDR = torch.load('./data/' + args.dataset + f'/z0_opt_LDR.pt').to(device)
+    else:
+        raise ValueError('Invalid ldr_type')
     Q_LDR = adjust_precision(args, Q_LDR, 'Q_LDR_')
     z0_LDR = adjust_precision(args, z0_LDR, 'z0_LDR_')
     return Q_LDR, z0_LDR
@@ -724,7 +733,7 @@ def get_gap_mean_worst(gap):
     return mean, worst
 
 
-def get_loss(z_star, z1, targets, inputs, problem, args, loss_type):
+def get_loss(z_star, z1, alpha, targets, inputs, problem, args, loss_type):
     predicted_obj = problem.obj_fn(z_star, inputs)
     if loss_type == 'obj':
         return predicted_obj.mean()
@@ -735,6 +744,8 @@ def get_loss(z_star, z1, targets, inputs, problem, args, loss_type):
         return (predicted_obj + penalty).mean()
     elif loss_type == 'mse':
         return F.mse_loss(z_star, targets)
+    elif loss_type == 'obj_alpha':
+        return (predicted_obj + problem.obj_example * alpha).mean()
     else:
         raise ValueError('Invalid loss_type')
 

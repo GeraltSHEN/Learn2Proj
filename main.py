@@ -65,6 +65,7 @@ def add_arguments():
     parser.add_argument("--proj_epochs", type=int)
     parser.add_argument("--precondition", type=str)
     parser.add_argument("--periodic", type=bool)
+    parser.add_argument("--ldr_type", type=str)
 
     # save related parameters
     parser.add_argument("--saveAllStats", default=True, type=bool)

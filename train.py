@@ -94,6 +94,8 @@ def Learning(args, data, problem, model, optimizer):
         print('ineq mean: {: .5f}, ineq max: {: .5f}, ineq worst: {: .5f}'.format(np.mean(epoch_stats['train_ineq_mean']),
                                                                                   np.mean(epoch_stats['train_ineq_max']),
                                                                                   np.max(epoch_stats['train_ineq_worst'])))
+        print('alpha mean: {: .2f}, alpha max: {: .2f}'.format(np.mean(epoch_stats['train_alpha']),
+                                                               np.max(epoch_stats['train_alpha'])))
         print('Val gap mean: {:.5f}, val gap worst: {: .5f}'.format(np.mean(epoch_stats['val_gap_mean']),
                                                                     np.max(epoch_stats['val_gap_worst'])))
         print('eq mean: {: .5f}, eq max: {: .5f}, eq worst: {: .5f}'.format(np.mean(epoch_stats['val_eq_mean']),
@@ -105,6 +107,8 @@ def Learning(args, data, problem, model, optimizer):
         print('ineq mean: {: .5f}, ineq max: {: .5f}, ineq worst: {: .5f}'.format(np.mean(epoch_stats['val_ineq_mean']),
                                                                                   np.mean(epoch_stats['val_ineq_max']),
                                                                                   np.max(epoch_stats['val_ineq_worst'])))
+        print('alpha mean: {: .2f}, alpha max: {: .2f}'.format(np.mean(epoch_stats['val_alpha']),
+                                                               np.max(epoch_stats['val_alpha'])))
         print('Infer time (batched inference mean): {: .5f}'.format(np.mean(epoch_stats['val_time'])))
         print('Train projections: {}, Val projections: {}'.format(np.mean(epoch_stats['train_proj']),
                                                                   np.mean(epoch_stats['val_proj'])))
@@ -131,8 +135,8 @@ def Learning(args, data, problem, model, optimizer):
 def optimizer_step(model, optimizer, inputs, targets, args, data, problem, epoch_stats):
     start_time = time.time()
     # optimizer.zero_grad()  # optimizer has been fused into the backward by the hook
-    z_star, z1, proj_num = model(inputs)
-    train_loss = get_loss(z_star, z1, targets, inputs, problem, args, args.loss_type)
+    z_star, z1, proj_num, alpha = model(inputs)
+    train_loss = get_loss(z_star, z1, alpha, targets, inputs, problem, args, args.loss_type)
     train_loss.backward()
     # optimizer.step()  # optimizer has been fused into the backward by the hook
     train_time = time.time() - start_time
@@ -140,6 +144,7 @@ def optimizer_step(model, optimizer, inputs, targets, args, data, problem, epoch
     dict_agg(epoch_stats, 'train_time', train_time, op='sum')
     dict_agg(epoch_stats, 'train_proj', np.array([proj_num]))
     dict_agg(epoch_stats, 'train_loss', train_loss.detach().cpu().numpy())
+    dict_agg(epoch_stats, 'train_alpha', alpha.detach().cpu().numpy())
 
     violation_agg(z_star, inputs, problem, epoch_stats, 'train')
 
@@ -150,7 +155,7 @@ def validate_model(model, args, data, problem, epoch_stats):
     for i, (inputs, targets) in enumerate(data['val']):
         inputs, targets = process_for_training(inputs, targets, args)
         start_time = time.time()
-        z_star, z1, proj_num = model(inputs)
+        z_star, z1, proj_num, alpha = model(inputs)
         val_time = time.time() - start_time
         optimality_gap = problem.optimality_gap(z_star, targets, inputs)
         gap_mean, gap_worst = get_gap_mean_worst(optimality_gap)
@@ -164,6 +169,7 @@ def validate_model(model, args, data, problem, epoch_stats):
         dict_agg(epoch_stats, 'val_proj', np.array([proj_num]))
         dict_agg(epoch_stats, 'val_gap_mean', gap_mean.detach().cpu().numpy())
         dict_agg(epoch_stats, 'val_gap_worst', gap_worst.detach().cpu().numpy())
+        dict_agg(epoch_stats, 'val_alpha', alpha.detach().cpu().numpy())
 
         violation_agg(z_star, inputs, problem, epoch_stats, 'val')
 
@@ -223,7 +229,7 @@ def evaluate_model(args, data, problem):
     for i, (inputs, targets) in enumerate(data):
         inputs, targets = process_for_training(inputs, targets, args)
         start_time = time.time()
-        z_star, z1, proj_num = model(inputs)
+        z_star, z1, proj_num, alpha = model(inputs)
         test_time = time.time() - start_time
         optimality_gap = problem.optimality_gap(z_star, targets, inputs)
         gap_mean, gap_worst = get_gap_mean_worst(optimality_gap)
@@ -232,6 +238,7 @@ def evaluate_model(args, data, problem):
         dict_agg(test_stats, 'test_proj', np.array([proj_num]))
         dict_agg(test_stats, 'test_gap_mean', gap_mean.detach().cpu().numpy())
         dict_agg(test_stats, 'test_gap_worst', gap_worst.detach().cpu().numpy())
+        dict_agg(test_stats, 'test_alpha', alpha.detach().cpu().numpy())
 
         violation_agg(z_star, inputs, problem, test_stats, 'test')
 
@@ -272,6 +279,7 @@ def calculate_scores(args, data):
               'test_ineq_mean': np.mean(test_stats['test_ineq_mean']),
               'test_ineq_max': np.mean(test_stats['test_ineq_max']),
               'test_ineq_worst': np.max(test_stats['test_ineq_worst']),
+              'test_alpha': np.mean(test_stats['test_alpha']),
               'train_time': np.sum(training_stats['train_time']),
               'val_time': np.mean(training_stats['val_time']),
               'test_time': np.mean(test_stats['test_time']),

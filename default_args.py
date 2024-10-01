@@ -144,10 +144,10 @@ def get_default_args(dataset):
         defaults['precondition'] = 'Ruiz'  # none, Pock-Chambolle, Ruiz
         defaults['periodic'] = False
 
-    elif dataset == 'Smallest':
-        defaults['truncate_idx'] = (1,14)  # uncertain because only one point given
-        defaults['primal_const_num'] = 65
-        defaults['primal_var_num'] = 88
+    elif dataset == 'case118':
+        defaults['truncate_idx'] = (1,118)  # uncertain
+        defaults['primal_const_num'] = 528
+        defaults['primal_var_num'] = 684
         defaults['primal_fx_idx'] = (0,-1)
         defaults['dual_const_num'] = 2238  # not applicable
         defaults['dual_var_num'] = 9743  # not applicable
@@ -190,6 +190,7 @@ def get_default_args(dataset):
         defaults['proj_epochs'] = 500
         defaults['precondition'] = 'none'  # none, Pock-Chambolle, Ruiz
         defaults['periodic'] = False
+        defaults['ldr_type'] = 'feas'  # opt or feas
 
     elif dataset == 'case39':
         defaults['truncate_idx'] = (0,39)  # idx of tensor + 1, e.g. (0,38) --> (1,39)
@@ -237,6 +238,7 @@ def get_default_args(dataset):
         defaults['proj_epochs'] = 500
         defaults['precondition'] = 'none'  # none, Pock-Chambolle, Ruiz
         defaults['periodic'] = False
+        defaults['ldr_type'] = 'feas'  # opt or feas
 
     else:
         raise NotImplementedError

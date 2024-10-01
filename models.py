@@ -79,7 +79,7 @@ class POCS(nn.Module):
             if violation <= self.ineq_tol:
                 break
         z_star = z
-        return z_star, curr_iter
+        return z_star, curr_iter, torch.zeros(z.shape[0]).to(device)
 
 
 class EAPM(nn.Module):
@@ -166,7 +166,7 @@ class EAPM(nn.Module):
             # if (ineq_stopping_criterion <= self.ineq_tol).all():
             #     break
         z_star = z
-        return z_star, curr_iter
+        return z_star, curr_iter, torch.zeros(z.shape[0]).to(device)
 
 
 class PeriodicEAPM(nn.Module):
@@ -217,7 +217,7 @@ class PeriodicEAPM(nn.Module):
             if violation <= self.ineq_tol:
                 break
         z_star = z
-        return z_star, curr_iter
+        return z_star, curr_iter, torch.zeros(z.shape[0]).to(device)
 
 
 class LDRPM(nn.Module):
@@ -275,7 +275,7 @@ class LDRPM(nn.Module):
         # print(f'alpha_upper is {alpha_upper}')
         # print(f'alpha is {alpha}')
         z_star = z_LDR * alpha.unsqueeze(1) + z_eq * (1 - alpha).unsqueeze(1)
-        return z_star, 0
+        return z_star, 0, alpha
 
 # class NullSpace(nn.Module):
 #     """
@@ -339,7 +339,6 @@ class OptProjNN(nn.Module):
         elif proj_method == 'EAPM':
             self.projection = EAPM(free_idx, A, WzProj, max_iter, eq_tol, ineq_tol, rho)
         elif proj_method == 'PeriodicEAPM':
-            # todo: the code in may doesn't have this line. Make sure the code in PeriodicEAPM is correct
             self.projection = PeriodicEAPM(free_idx, A, WzProj, max_iter, eq_tol, ineq_tol, rho)
         elif proj_method == 'LDRPM':
             self.projection = LDRPM(free_idx, A, WzProj, Q, z0, eq_tol, ineq_tol)
@@ -350,10 +349,11 @@ class OptProjNN(nn.Module):
         z, _, _ = self.optimality_layers(b_primal)
         with torch.no_grad():
             Bias_Proj = b_primal @ self.WbProj.t()
-        z_star, proj_num = self.projection(z, Bias_Proj, b_primal)
-        return z_star, z, proj_num
+        z_star, proj_num, alpha = self.projection(z, Bias_Proj, b_primal)
+        return z_star, z, proj_num, alpha
 
 
+# todo: this must be updated, i guess bugs must happen
 class DualOptProjNN(nn.Module):
     def __init__(self, input_dim, hidden_dim, hidden_num, output_dim,
                  truncate_idx, free_idx, A, WzProj, WbProj,
@@ -401,8 +401,8 @@ class VanillaNN(nn.Module):
         out = self.layers[-1](b_primal)
 
         if self.training:
-            return out, out, 0
+            return out, out, 0, torch.zeros(out.shape[0]).to(device)
         else:
-            return out, out, 0
+            return out, out, 0, torch.zeros(out.shape[0]).to(device)
 
 

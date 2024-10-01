@@ -179,17 +179,22 @@ def get_DCOPF_data_tensor():
 def get_case39_data_tensor():
     dataset = 'case39'
     csv_path = 'data/' + dataset + '/'
-    A_primal = torch.tensor(pd.read_csv(csv_path + 'A_case39.csv', header=None).values)
-    c_primal = torch.tensor(pd.read_csv(csv_path + 'c_case39.csv', header=None).values).squeeze()
-    b_primal = torch.tensor(pd.read_csv(csv_path + 'btest_case39.csv', header=None).values).t()
-    Q_LDR = torch.tensor(pd.read_csv(csv_path + 'Q_case39.csv', header=None).values)
-    z0_LDR = torch.tensor(pd.read_csv(csv_path + 'z0_case39.csv', header=None).values).squeeze()
-    cost_true = torch.tensor(pd.read_csv(csv_path + 'cost_true_case39.csv', header=None).values).squeeze()
+    A_primal = torch.tensor(pd.read_csv(csv_path + f'A_{dataset}.csv', header=None).values)
+    c_primal = torch.tensor(pd.read_csv(csv_path + f'c_{dataset}.csv', header=None).values).squeeze()
+    b_primal = torch.tensor(pd.read_csv(csv_path + f'btest_{dataset}.csv', header=None).values).t()
+    Q_LDR = torch.tensor(pd.read_csv(csv_path + f'Q_{dataset}.csv', header=None).values)
+    z0_LDR = torch.tensor(pd.read_csv(csv_path + f'z0_{dataset}.csv', header=None).values).squeeze()
+    cost_true = torch.tensor(pd.read_csv(csv_path + f'cost_true_{dataset}.csv', header=None).values).squeeze()
 
     torch.save(A_primal.detach().cpu(), csv_path + 'A_primal_dense.pt')
     torch.save(c_primal.detach().cpu(), csv_path + 'c_primal.pt')
     torch.save(Q_LDR.detach().cpu(), csv_path + 'Q_LDR.pt')
     torch.save(z0_LDR.detach().cpu(), csv_path + 'z0_LDR.pt')
+
+    Q_opt_LDR = torch.tensor(pd.read_csv(csv_path + f'Q_opt_{dataset}.csv', header=None).values)
+    z0_opt_LDR = torch.tensor(pd.read_csv(csv_path + f'z0_opt_{dataset}.csv', header=None).values).squeeze()
+    torch.save(Q_opt_LDR.detach().cpu(), csv_path + 'Q_opt_LDR.pt')
+    torch.save(z0_opt_LDR.detach().cpu(), csv_path + 'z0_opt_LDR.pt')
 
     train_size = int(0.8 * b_primal.size(0))
     val_size = (b_primal.size(0) - train_size) // 2
