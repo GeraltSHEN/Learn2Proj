@@ -1,6 +1,6 @@
 from train import run_training
 from utils import load_data_new, load_problem_new
-from pretrain import rho_search, baseline_pocs, data_sanity_check, run_proj_exp
+from pretrain import data_sanity_check, run_proj_exp
 import argparse
 import os
 import torch
@@ -132,10 +132,10 @@ def main(args):
         data = load_data_new(args, problem)
         # run training
         run_training(args, data, problem)
-    elif args.job == 'rho_search':
-        rho_search(args)
-    elif args.job == 'baseline_pocs':
-        baseline_pocs(args)
+    # elif args.job == 'rho_search':
+    #     rho_search(args)
+    # elif args.job == 'baseline_pocs':
+    #     baseline_pocs(args)
     elif args.job == 'run_proj_exp':
         run_proj_exp(args)
     elif args.job == 'data_sanity_check':

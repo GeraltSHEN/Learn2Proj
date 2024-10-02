@@ -98,7 +98,7 @@ def get_default_args(dataset):
         defaults['periodic'] = False
 
     elif dataset == 'DCOPF_':
-        defaults['truncate_idx'] = (4,1867)  # idx of tensor + 1, e.g. (1,39) --> (2,40)
+        defaults['truncate_idx'] = (4,1867)
         defaults['primal_const_num'] = 9743
         defaults['primal_var_num'] = 9980
         defaults['primal_fx_idx'] = (0,2237)
@@ -145,7 +145,7 @@ def get_default_args(dataset):
         defaults['periodic'] = False
 
     elif dataset == 'case118':
-        defaults['truncate_idx'] = (1,118)  # uncertain
+        defaults['truncate_idx'] = (0,118)  # idx of tensor + 1, e.g. (0,117) --> (0,118), if you have 118 nodes, then it is (0,118)
         defaults['primal_const_num'] = 528
         defaults['primal_var_num'] = 684
         defaults['primal_fx_idx'] = (0,-1)
@@ -193,7 +193,7 @@ def get_default_args(dataset):
         defaults['ldr_type'] = 'feas'  # opt or feas
 
     elif dataset == 'case39':
-        defaults['truncate_idx'] = (0,39)  # idx of tensor + 1, e.g. (0,38) --> (1,39)
+        defaults['truncate_idx'] = (0,39)  # idx of tensor + 1, e.g. (0,38) --> (0,39)
         defaults['primal_const_num'] = 151
         defaults['primal_var_num'] = 210
         defaults['primal_fx_idx'] = (0,-1)

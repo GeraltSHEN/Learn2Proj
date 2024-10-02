@@ -177,7 +177,7 @@ def get_DCOPF_data_tensor():
     # torch.save(dual_target_test.detach().cpu(), csv_path + 'test/dual_target_test.pt')
 
 def get_case39_data_tensor():
-    dataset = 'case39'
+    dataset = 'case118'
     csv_path = 'data/' + dataset + '/'
     A_primal = torch.tensor(pd.read_csv(csv_path + f'A_{dataset}.csv', header=None).values)
     c_primal = torch.tensor(pd.read_csv(csv_path + f'c_{dataset}.csv', header=None).values).squeeze()
@@ -196,13 +196,14 @@ def get_case39_data_tensor():
     torch.save(Q_opt_LDR.detach().cpu(), csv_path + 'Q_opt_LDR.pt')
     torch.save(z0_opt_LDR.detach().cpu(), csv_path + 'z0_opt_LDR.pt')
 
+    b_ref = torch.tensor(pd.read_csv(csv_path + f'b_{dataset}.csv', header=None).values).squeeze()
+
     train_size = int(0.8 * b_primal.size(0))
     val_size = (b_primal.size(0) - train_size) // 2
     test_size = b_primal.size(0) - train_size - val_size
 
     input_train, input_val, input_test = torch.split(b_primal, [train_size, val_size, test_size], dim=0)
     self_target_train, self_target_val, self_target_test = torch.split(cost_true, [train_size, val_size, test_size], dim=0)
-
 
     torch.save(input_train.detach().cpu(), csv_path + 'train/input_train.pt')
     torch.save(input_val.detach().cpu(), csv_path + 'val/input_val.pt')
