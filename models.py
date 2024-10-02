@@ -277,50 +277,76 @@ class LDRPM(nn.Module):
         z_star = z_LDR * alpha.unsqueeze(1) + z_eq * (1 - alpha).unsqueeze(1)
         return z_star, 0, alpha
 
-# class NullSpace(nn.Module):
-#     """
-#     z := Bias_Proj + z @ self.Weight_Proj # now z in set A
-#     N: orthogonal basis of the null space of A
-#     see derivation in 草稿纸 in ipad: s_star = N^T ReLu(-z)
-#     s_star: the s that makes z_star = z + N s_star >= 0 (of course A z_star = b)
-#     Therefore, z_star = z + N N^T ReLu(-z)
-#     """
-#     def __init__(self, free_idx, A, N, WzProj, max_iter, eq_tol, ineq_tol, rho=1.0):
-#         super(NullSpace, self).__init__()
-#
-#         self.free_num = free_idx[1] + 1
-#         self.A = A.requires_grad_(False)
-#         self.N = N.requires_grad_(False)
-#         self.Weight_Proj = WzProj.t().requires_grad_(False)
-#         self.max_iter = max_iter
-#         self.eq_tol = eq_tol
-#         self.ineq_tol = ineq_tol
-#         self.rho = rho
-#
-#     def stopping_criterion(self, z, b_0):
-#         # gurobi uses the 1. worst constraint violation 2. scale the tolerance by D1 @ tolerance
-#         # but gurobi does not use the eq_mean / eq_scale_mean
-#         # batch mean to avoid black sheep in training samples
-#         with torch.no_grad():
-#             ineq_residual = torch.relu(-z[:, self.free_num:])
-#             ineq_stopping_criterion = torch.mean(torch.abs(ineq_residual), dim=0)  # (bsz, const_num) -> (const_num,)
-#             return ineq_stopping_criterion
-#
-#     def forward(self, z, Bias_Proj, b_0):
-#         z = Bias_Proj + z @ self.Weight_Proj  # z0 \in set A
-#         z = z + -z @ self.N @ self.N.t()
-#         curr_iter = 0
-#         while curr_iter <= self.max_iter:
-#             P2z = z.clone()
-#             P2z[:, self.free_num:] = F.relu(P2z[:, self.free_num:])
-#             z = Bias_Proj + P2z @ self.Weight_Proj
-#             z = z + -z @ self.N @ self.N.t()
-#             curr_iter += 1
-#             ineq_stopping_criterion = self.stopping_criterion(z, b_0)
-#             if (ineq_stopping_criterion <= self.ineq_tol).all():
-#                 break
-#         z_star = z
-#         return z_star, curr_iter
+
+class GMDS(nn.Module):
+    def __init__(self, free_idx, A_eq_inp, A_eq_dep, A_ineq_inp, A_ineq_dep,
+                 b_eq, b_ineq, z_int,
+                 eq_tol, ineq_tol):
+        super(GMDS, self).__init__()
+
+        self.free_num = free_idx[1] + 1
+
+        self.A_eq_inp = A_eq_inp.requires_grad_(False)
+        self.A_eq_dep = A_eq_dep.requires_grad_(False)
+        self.A_ineq_inp = A_ineq_inp.requires_grad_(False)
+        self.A_ineq_dep = A_ineq_dep.requires_grad_(False)
+        # eq (7) in paper; remember this is for S_ref not S_ref_bar
+        self.A = A_ineq_inp - A_ineq_dep @ torch.inverse(A_eq_dep) @ A_eq_inp
+        self.b = b_ineq - A_ineq_dep @ torch.inverse(A_eq_dep) @ b_eq
+        self.A_bar = self.A
+        self.b_bar = self.b + z_int
+
+        self.eq_tol = eq_tol
+        self.ineq_tol = ineq_tol
+
+        self.inp_num = A_eq_inp.shape[1]
+        self.H_unitball = torch.cat([torch.eye(self.inp_num), -torch.eye(self.inp_num)], dim=0).to(device)
+        self.h_unitball = torch.ones(2 * self.inp_num).to(device)
+
+    def stopping_criterion(self, z, b_0):
+        with torch.no_grad():
+            eq_residual = z @ self.A.t() - b_0
+            eq_lhs = torch.mean(torch.abs(eq_residual), dim=0)
+            ineq_residual = torch.relu(-z[:, self.free_num:])
+            ineq_lhs = torch.mean(torch.abs(ineq_residual), dim=0)
+            lhs = torch.sqrt(eq_lhs.pow(2).sum() + ineq_lhs.pow(2).sum())
+            rhs = 1 + torch.sqrt(torch.mean(b_0, dim=0).pow(2).sum() + 0)
+
+            return lhs/rhs
+
+    def gm_unitball(self, v):
+        # eq (9) in paper
+        lhs = (v @ self.H_unitball.t())  # (bsz, 2 * inp_num)
+        ratio = lhs / self.h_unitball  # (bsz, 2 * inp_num) actually you don't need h_unitball because they are all 1s
+        gm = torch.max(ratio, dim=1).values  # (bsz, )
+        return gm
+
+    def gm_Sbar(self, v):
+        # eq (9) in paper
+        lhs = (v @ self.A_bar.t())  # (bsz, const_num)
+        ratio = lhs / self.b_bar  # (bsz, const_num)
+        gm = torch.max(ratio, dim=1).values  # (bsz, )
+        return gm
+
+    def eq_completion(self, z_inp_star):
+        # eq (6) in paper
+        #todo: b_0 should be b_eq check!!!!
+        return torch.inverse(self.A_eq_dep) @ self.A_eq_inp @ z_inp_star - torch.inverse(self.A_eq_dep) @ self.b_eq
+
+    def forward(self, v, z_int, b_0):
+        """
+notations:
+Paper: u ---> z
+Paper: x ---> truncated b (the changing parameters)
+Paper: b ---> b (the constant parameters)
+        """
+        v_star = torch.clamp(v, min=-1, max=1)  # put it in L-inf unit ball
+        z_inp_star = self.gm_unitball(v_star) / self.gm_Sbar(v_star) * v_star + z_int  # eq (11) in paper
+        z_dep_star = self.eq_completion(z_inp_star, b_0)  # todo: implement eq (6) in paper
+        z_star = torch.cat([z_inp_star, z_dep_star], dim=1)
+        return z_star, 0, torch.zeros(z.shape[0]).to(device)
+
+
 
 
 class OptProjNN(nn.Module):

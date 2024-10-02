@@ -1,4 +1,4 @@
-from utils import load_problem_new, load_data_new, load_W_proj, load_LDR, load_N, process_for_training
+from utils import load_problem_new, load_data_new, load_W_proj, load_LDR, process_for_training, get_gap_mean_worst
 import torch
 import models
 
@@ -49,9 +49,12 @@ def data_sanity_check(args):
     #                 data_type, i, eq_stopping_criterion.max(), ineq_stopping_criterion.max()))
 
 
-def projection_on_data(data, solver, Wb_proj, args):
+def projection_on_data(data, solver, Wb_proj, args, problem):
     solver.eval()
     measures = {'avg_proj_num': 0,
+                'avg_alpha': 0,
+                'avg_gap': 0,  #(only meaningful for optLDR)
+                'worst_gap': [],    #(only meaningful for optLDR)
                 'unconverged': 0,
                 'unconverged_idx': [],
                 'violation': 0,
@@ -62,14 +65,20 @@ def projection_on_data(data, solver, Wb_proj, args):
     for i, (inputs, targets) in enumerate(data):
         inputs, targets = process_for_training(inputs, targets, args)
         with torch.no_grad():
-            rand_z = torch.randn_like(targets)
+            rand_z = torch.rand((inputs.shape[0], problem.var_num), device=device)
             b_primal = inputs
             Bias_Proj = b_primal @ Wb_proj  # has been transposed
         # let's count the projection time
         start = time.time()
         z_star, proj_num, alpha = solver(rand_z, Bias_Proj, b_primal)
         measures['total_time'] = measures['total_time'] + time.time() - start
+
+        optimality_gap = problem.optimality_gap(z_star, targets, inputs)
+        gap, _ = get_gap_mean_worst(optimality_gap)
+        measures['avg_gap'] += gap.item()
+        measures['worst_gap'].append(gap.item())
         measures['avg_proj_num'] += proj_num
+        measures['avg_alpha'] += alpha.mean().item()
         measures['violation'] += solver.stopping_criterion(z_star, b_primal).item()
         measures['ineq_violation'] += torch.mean(torch.abs(torch.relu(-z_star[:, solver.free_num:])), dim=0)
         measures['eq_violation'] += torch.mean(torch.abs(z_star @ solver.A.t() - b_primal), dim=0)
@@ -79,7 +88,10 @@ def projection_on_data(data, solver, Wb_proj, args):
             measures['unconverged_idx'].append(i)
             print(f'Projection not converged for example {i}')
 
+    measures['avg_gap'] /= len(data)
+    measures['worst_gap'] = max(measures['worst_gap'])
     measures['avg_proj_num'] /= len(data)
+    measures['avg_alpha'] /= len(data)
     measures['unconverged_rate'] = measures['unconverged'] / len(data)
     measures['total_time'] /= len(data)
     measures['violation'] /= len(data)
@@ -91,6 +103,9 @@ def projection_on_data(data, solver, Wb_proj, args):
     measures['num_eq_violation'] = (measures['eq_violation'] > args.eq_tol).sum().item()
 
     print(f'Average projection number for train: {measures["avg_proj_num"]:.2f}, '
+          f'average alpha: {measures["avg_alpha"]:.2f}, '
+          f'average gap: {measures["avg_gap"]:.5f}, '
+          f'worst gap: {measures["worst_gap"]:.5f}, '
           f'unconverged rate: {measures["unconverged_rate"]:.5f}, '
           f'projection time per instance: {measures["total_time"]:.2f} seconds, '
           f'violation: {measures["violation"]}, '
@@ -169,7 +184,7 @@ def run_proj_exp(args):
             solver = ldr_solver
         else:
             raise ValueError('Unknown projection method')
-        measures = projection_on_data(data[data_type], solver, Wb_proj, args)
+        measures = projection_on_data(data[data_type], solver, Wb_proj, args, problem)
         for key, value in measures.items():
             measures_train_val_test[f'{key} {data_type}'] = value
 

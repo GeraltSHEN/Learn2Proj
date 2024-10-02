@@ -75,16 +75,13 @@ def load_fixed_params(args):
     return A, b_or_c
 
 
-def load_unfixed_params(args, DATA_TYPE, for_training=False, for_proj_check=False):
+def load_unfixed_params(args, DATA_TYPE, for_training=False):
     assert args.self_supervised
     inputs = torch.load(f'./data/{args.dataset}/{DATA_TYPE}/input_{DATA_TYPE}.pt')
     inputs = adjust_precision(args, inputs, 'inputs_')
 
     if for_training:
         targets = torch.zeros(inputs.shape[0])
-    if for_proj_check:
-        var_num = args.primal_var_num if 'primal' in args.problem else args.dual_var_num
-        targets = torch.zeros((inputs.shape[0], var_num))
     else:
         targets = torch.load(f'./data/{args.dataset}/{DATA_TYPE}/self_target_{DATA_TYPE}.pt')
 
@@ -177,14 +174,14 @@ def load_problem_new(args):
 
 def load_data_new(args, problem):
     if args.job in ['training']:
-        input_train, target_train = load_unfixed_params(args, 'train', True, False)
-        input_val, target_val = load_unfixed_params(args, 'val', False, False)
-        input_test, target_test = load_unfixed_params(args, 'test', False, False)
+        input_train, target_train = load_unfixed_params(args, 'train', True)
+        input_val, target_val = load_unfixed_params(args, 'val', False)
+        input_test, target_test = load_unfixed_params(args, 'test', False)
         input_train = input_train * problem.D1
         input_val = input_val * problem.D1
         input_test = input_test * problem.D1
 
-        problem.obj_example = (target_val.sum() + target_test.sum()) / (len(target_val) + len(target_test))
+        problem.obj_example = (target_val.sum() + target_test.sum()) / (len(target_val) + len(target_test))  #todo: try tuning this
         print(f'example objective value: {problem.obj_example}')
 
         train_data = TensorDataset(input_train, target_train)
@@ -199,17 +196,17 @@ def load_data_new(args, problem):
 
     elif args.job in ['baseline_pocs', 'run_proj_exp', 'rho_search']:
         print(f'Loading data for {args.job}')
-        input_train, target_train = load_unfixed_params(args, 'train', False, True)
-        input_val, target_val = load_unfixed_params(args, 'val', False, True)
-        input_test, target_test = load_unfixed_params(args, 'test', False, True)
+        input_train, target_train = load_unfixed_params(args, 'train', False)
+        input_val, target_val = load_unfixed_params(args, 'val', False)
+        input_test, target_test = load_unfixed_params(args, 'test', False)
         input_train = input_train * problem.D1
         input_val = input_val * problem.D1
         input_test = input_test * problem.D1
 
         # TODO: remember to change this back to full dataset
-        train_data = TensorDataset(input_train[:10], target_train[:10])
-        val_data = TensorDataset(input_val[:10], target_val[:10])
-        test_data = TensorDataset(input_test[:10], target_test[:10])
+        train_data = TensorDataset(input_train, target_train)
+        val_data = TensorDataset(input_val, target_val)
+        test_data = TensorDataset(input_test, target_test)
         train = DataLoader(train_data, batch_size=1, shuffle=False)
         val = DataLoader(val_data, batch_size=1, shuffle=False)
         test = DataLoader(test_data, batch_size=1, shuffle=False)

@@ -144,7 +144,7 @@ def main(args):
     elif args.job == 'make_datasets':
         pass
     else:
-        pass
+        raise ValueError('Invalid job type')
         # data = load_data(args)
         # # evaluate model
         # evaluate_model(data, args)
