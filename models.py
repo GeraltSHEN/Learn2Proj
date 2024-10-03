@@ -225,6 +225,7 @@ class PeriodicEAPM(nn.Module):
 
 
 class LDRPM(nn.Module):
+    # todo: warning no longer used
     def __init__(self, free_idx, A, WzProj, Q, z0, eq_tol, ineq_tol):
         super(LDRPM, self).__init__()
 
@@ -312,32 +313,74 @@ class LDRPM_MemoryEfficient(nn.Module):
         z_eq = Bias_Proj + z @ self.Weight_Proj  # z0 \in set A
 
         s = z_LDR - z_eq
-        mask_geq, mask_leq = s > 0, s < 0
-        alphas = - z_eq / s  # (bsz, var_num)
-        """
-        Note that alphas * mask results in (bsz, var_num) tensor where the elements that are not in the mask are 0
+        mask_violation = z_eq < 0
 
-        if s>0, then alpha >= -z_eq / s where z_eq can be positive or negative so that rhs can be positive or negative
-        as we want to take the maximum, and let alpha in range of [0, 1], 
-        when the maximum of rhs is positive, then the 0s in the indexes where s<=0 won't affect the maximum
-        when the maximum of rhs is negative, then the 0s in the indexes where s<=0 can force the maximum to be 0
+        masked_z_eq = z_eq * mask_violation
+        masked_s = z_LDR - masked_z_eq
+        # disturb the 0s in masked_s to avoid division by 0
+        # 0s in masked_s only caused by z_LDR_i = 0 and masked_z_eq_i = 0
+        # disturbance doesn't affect the result as the alpha for these indexes will be 0 (masked_z_eq_i = 0)
+        masked_s[masked_s == 0] = 99
 
-        if s<0, then alpha <= -z_eq / s where z_eq must be positive if s = (z_LDR - z_eq) <0 so that rhs must be positive
-        as we want to take the minimum, and let alpha in range of [0, 1], 
-        when the minimum of rhs is positive (always), then 0s in the indexes where s>=0 will affect the minimum
-        so we need to change default values that are not in the mask to be 1
-        """
-        alphas_geq = alphas * mask_geq
-        alphas_leq = alphas * mask_leq
-        # change the default values that are not in the mask to be 1
-        alphas_leq[~mask_leq] = 1.0
-        alpha_lower = torch.max(alphas_geq, dim=1).values  # (bsz, )
-        alpha_upper = torch.min(alphas_leq, dim=1).values  # (bsz, )
-        alpha = torch.where(alpha_lower <= alpha_upper, alpha_lower, torch.ones_like(alpha_lower))
+        alphas = - masked_z_eq / masked_s  # (bsz, var_num)
+        alpha = torch.max(alphas, dim=1).values  # (bsz, )
+        if torch.isnan(alphas).any():
+            print('alphas has nan')
+            print(f'index of nan is {torch.isnan(alphas).nonzero(as_tuple=True)}')
+            for idx in torch.isnan(alphas).nonzero(as_tuple=True)[1].tolist():
+                print(f'nan idx is {idx}')
+                print(f'z_LDR values at this idx: {z_LDR[:, idx - 2:idx + 2]}')
+                print(f'masked_z_eq values at this idx: {masked_z_eq[:, idx - 2:idx + 2]}')
+                print(f'mask_violation values at this idx: {mask_violation[:, idx - 2:idx + 2]}')
+                print(f's values at this idx: {s[:, idx - 2:idx + 2]}')
+                print(f'alphas values at this idx: {alphas[:, idx - 2:idx + 2]}')
+
         z_star = z_LDR * alpha.unsqueeze(1) + z_eq * (1 - alpha).unsqueeze(1)
         return z_star, 0, alpha
-        #return z_eq, 0, alpha
-        # return z_LDR, 0, alpha
+
+
+        # tol = 1e-6
+        # s = z_LDR - z_eq
+        # mask_geq, mask_leq = s > 0, s < 0
+        # alphas = - z_eq / s  # (bsz, var_num)
+        # alphas[torch.abs(s) < tol] = 0.0
+        # """
+        # Note that alphas * mask results in (bsz, var_num) tensor where the elements that are not in the mask are 0
+        #
+        # if s>0, then alpha >= -z_eq / s where z_eq can be positive or negative so that rhs can be positive or negative
+        # as we want to take the maximum, and let alpha in range of [0, 1],
+        # when the maximum of rhs is positive, then the 0s in the indexes where s<=0 won't affect the maximum
+        # when the maximum of rhs is negative, then the 0s in the indexes where s<=0 can force the maximum to be 0
+        #
+        # if s<0, then alpha <= -z_eq / s where z_eq must be positive if s = (z_LDR - z_eq) <0 so that rhs must be positive
+        # as we want to take the minimum, and let alpha in range of [0, 1],
+        # when the minimum of rhs is positive (always), then 0s in the indexes where s>=0 will affect the minimum
+        # so we need to change default values that are not in the mask to be 1
+        # """
+        # alphas_geq = alphas * mask_geq
+        # alphas_leq = alphas * mask_leq
+        # # change the default values that are not in the mask to be 1
+        # alphas_leq[~mask_leq] = 1.0
+        # alpha_lower = torch.max(alphas_geq, dim=1).values  # (bsz, )
+        # alpha_upper = torch.min(alphas_leq, dim=1).values  # (bsz, )
+        # alpha = torch.where(alpha_lower <= alpha_upper, alpha_lower, torch.ones_like(alpha_lower))
+        # # print('a new point projection starts')
+        # # print(f'alphas:\n{alphas[:1, :10]}')
+        # # print(f's:\n{s[:1, :10]}')
+        # # print(f'z_LDR:\n{z_LDR[:1, :10]}')
+        # # print(f'z_eq:\n{z_eq[:1, :10]}')
+        # # print(f'alpha_geq:\n{alphas_geq[:1, :10]}')
+        # # print(f'alpha_lower:\n{alpha_lower}')
+        # # print('\n')
+        # # print(f'alpha_leq:\n{alphas_leq[:1, :10]}')
+        # # print(f'alpha_upper:\n{alpha_upper}')
+        # # print('\n')
+        # # print(f'alpha:\n{alpha}')
+        # # print('\n')
+        # z_star = z_LDR * alpha.unsqueeze(1) + z_eq * (1 - alpha).unsqueeze(1)
+        # return z_star, 0, alpha
+        # #return z_eq, 0, alpha
+        # # return z_LDR, 0, alpha
 
 
 class GMDS(nn.Module):
