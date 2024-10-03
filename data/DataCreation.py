@@ -1,8 +1,8 @@
 import torch
 import pandas as pd
+import pickle
 import numpy
 import os
-import pickle
 
 
 # def get_self_supervised_data(args):
@@ -196,7 +196,19 @@ def get_case39_data_tensor():
     torch.save(Q_opt_LDR.detach().cpu(), csv_path + 'Q_opt_LDR.pt')
     torch.save(z0_opt_LDR.detach().cpu(), csv_path + 'z0_opt_LDR.pt')
 
-    b_ref = torch.tensor(pd.read_csv(csv_path + f'b_{dataset}.csv', header=None).values).squeeze()
+    Q_feas_LDR = torch.tensor(pd.read_csv(csv_path + f'Q_feas_{dataset}.csv', header=None).values)
+    z0_feas_LDR = torch.tensor(pd.read_csv(csv_path + f'z0_feas_{dataset}.csv', header=None).values).squeeze()
+    torch.save(Q_feas_LDR.detach().cpu(), csv_path + 'Q_feas_LDR.pt')
+    torch.save(z0_feas_LDR.detach().cpu(), csv_path + 'z0_feas_LDR.pt')
+
+    #b_ref = torch.tensor(pd.read_csv(csv_path + f'b_{dataset}.csv', header=None).values).squeeze()
+    ref = b_primal[0]
+    mutable_idx = set()
+    for i in range(1, len(ref)):
+        true_idx = torch.nonzero(ref != b_primal[i]).squeeze().tolist()
+        mutable_idx.update(true_idx)
+    with open(csv_path + 'mutable_idx.pkl', 'wb') as file:
+        pickle.dump(list(mutable_idx), file)
 
     train_size = int(0.8 * b_primal.size(0))
     val_size = (b_primal.size(0) - train_size) // 2

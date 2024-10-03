@@ -36,6 +36,7 @@ def self_supervised_generator(args, data, num_points, random_range):
 
 def run_training(args, data, problem):
     model = load_model_new(args, problem)
+    model.optimality_layers.xavier_init()
     print(f'----- {args.model_id} in {args.dataset} dataset -----')
     print('#params:', sum(p.numel() for p in model.parameters()))
     optimizer = get_optimizer_new(args, model)
@@ -138,6 +139,19 @@ def optimizer_step(model, optimizer, inputs, targets, args, data, problem, epoch
     z_star, z1, proj_num, alpha = model(inputs)
     train_loss = get_loss(z_star, z1, alpha, targets, inputs, problem, args, args.loss_type)
     train_loss.backward()
+
+    # for name, param in model.named_parameters():
+    #     print(f'Parameter {name}: {param}')
+    #     if param.grad is not None:
+    #         if torch.isnan(param.grad).any():
+    #             print(f'Gradient {name} contains NaN: {param.grad}')
+    #         else:
+    #             print(f'Gradient {name}: {param.grad}')
+    #     else:
+    #         print(f'Gradient {name} is None')
+    # print(f'Train loss: {train_loss}')
+
+
     # optimizer.step()  # optimizer has been fused into the backward by the hook
     train_time = time.time() - start_time
 

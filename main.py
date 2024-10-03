@@ -7,7 +7,6 @@ import torch
 import default_args
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
-torch.set_default_dtype(torch.float64)
 
 
 def add_arguments():
@@ -18,7 +17,7 @@ def add_arguments():
     parser.add_argument("--model_id", type=str)
 
     # dataset related parameters
-    parser.add_argument("--truncate_idx", type=tuple)  # default="1,501", "2,40"
+    # parser.add_argument("--truncate_idx", type=tuple)  # default="1,501", "2,40"
     parser.add_argument("--primal_const_num", type=int)  # default=2143, 152
     parser.add_argument("--primal_var_num", type=int)  # default=2313, 161
     parser.add_argument("--primal_fx_idx", type=tuple)  # default=671, 49
@@ -70,7 +69,6 @@ def add_arguments():
     # save related parameters
     parser.add_argument("--saveAllStats", default=True, type=bool)
     parser.add_argument("--resultSaveFreq", default=50, type=int)
-
     parser.add_argument("--float64", default=False, type=bool)
 
     return parser.parse_args()
@@ -86,11 +84,11 @@ def complete_args(args):
         args.learn2proj = True
     else:
         args.learn2proj = False
-
-    args.primal_input_dim = args.truncate_idx[1] - args.truncate_idx[0]
-    args.primal_x_dim = args.primal_var_num
-    args.dual_input_dim = args.truncate_idx[1] - args.truncate_idx[0]
-    args.dual_y_dim = args.dual_var_num
+    #
+    # args.primal_input_dim = args.truncate_idx[1] - args.truncate_idx[0]
+    # args.primal_x_dim = args.primal_var_num
+    # args.dual_input_dim = args.truncate_idx[1] - args.truncate_idx[0]
+    # args.dual_y_dim = args.dual_var_num
 
     if args.epochs < args.resultSaveFreq:
         args.resultSaveFreq = args.epochs

@@ -11,10 +11,10 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 class OptimalityLayers(nn.Module):
     def __init__(self, input_dim, hidden_dim, hidden_num, output_dim,
-                 truncate_idx):
+                 mutable_idx):
         super(OptimalityLayers, self).__init__()
 
-        self.truncate_idx = truncate_idx
+        self.mutable_idx = mutable_idx
 
         # optimality layers
         self.optimality_layers = nn.ModuleList()
@@ -31,11 +31,15 @@ class OptimalityLayers(nn.Module):
             nn.init.zeros_(layer.weight)
             nn.init.zeros_(layer.bias)
 
-    def truncate(self, b_primal):
-        return b_primal[:, self.truncate_idx[0]:self.truncate_idx[1]], b_primal
+    def xavier_init(self):
+        for layer in self.optimality_layers:
+            if isinstance(layer, nn.Linear):
+                nn.init.xavier_uniform_(layer.weight)
+                if layer.bias is not None:
+                    nn.init.zeros_(layer.bias)
 
     def forward(self, b_primal):
-        b, b_0 = self.truncate(b_primal)
+        b = b_primal[:, self.mutable_idx]
         for i in range(0, len(self.optimality_layers) - 1, 2):
             b = F.relu(self.optimality_layers[i](b))
             b = self.optimality_layers[i+1](b)  # Apply LayerNorm
@@ -120,15 +124,15 @@ class EAPM(nn.Module):
     def forward(self, z, Bias_Proj, b_0):
         z = Bias_Proj + z @ self.Weight_Proj  # z0 \in set A
 
-        # print('\n\nA NEW POINT PROJECTION STARTS')
-        # eq_stopping_criterion = torch.mean(torch.abs(z @ self.A.t() - b_0), dim=0)
-        # print(f'\n\nthe eq_stopping_criterion (before loop) is {eq_stopping_criterion}')
-        # print(f'the number of eq violation {((eq_stopping_criterion <= self.eq_tol) == False).sum().item()}')
-        #
-        # z = Bias_Proj + z @ self.Weight_Proj  # z0 \in set A
-        # eq_stopping_criterion = torch.mean(torch.abs(z @ self.A.t() - b_0), dim=0)
-        # print(f'\n\nthe eq_stopping_criterion (before loop BUT 2ND) is {eq_stopping_criterion}')
-        # print(f'the number of eq violation {((eq_stopping_criterion <= self.eq_tol) == False).sum().item()}')
+        print('\n\nA NEW POINT PROJECTION STARTS')
+        eq_stopping_criterion = torch.mean(torch.abs(z @ self.A.t() - b_0), dim=0)
+        print(f'\n\nthe eq_stopping_criterion (before loop) is {eq_stopping_criterion}')
+        print(f'the number of eq violation {((eq_stopping_criterion <= self.eq_tol) == False).sum().item()}')
+
+        z = Bias_Proj + z @ self.Weight_Proj  # z0 \in set A
+        eq_stopping_criterion = torch.mean(torch.abs(z @ self.A.t() - b_0), dim=0)
+        print(f'\n\nthe eq_stopping_criterion (before loop BUT 2ND) is {eq_stopping_criterion}')
+        print(f'the number of eq violation {((eq_stopping_criterion <= self.eq_tol) == False).sum().item()}')
 
         curr_iter = 0
         while curr_iter <= self.max_iter:
@@ -244,7 +248,6 @@ class LDRPM(nn.Module):
             return lhs/rhs
 
     def forward(self, z, Bias_Proj, b_0):
-        # todo: this is a pain. in case 39, Q is for complete b_0, but in case 118, Q is for truncated b_0, my method so far is adding 0s to the original Q loaded
         z_LDR = self.z0 + b_0 @ self.Q  # (bsz, const_num) @ (const_num, var_num) -> (bsz, var_num)
         z_eq = Bias_Proj + z @ self.Weight_Proj  # z0 \in set A
 
@@ -280,10 +283,10 @@ class LDRPM(nn.Module):
 
 
 class LDRPM_MemoryEfficient(nn.Module):
-    def __init__(self, truncate_idx, free_idx, A, WzProj, Q, z0, eq_tol, ineq_tol):
+    def __init__(self, mutable_idx, free_idx, A, WzProj, Q, z0, eq_tol, ineq_tol):
         super(LDRPM_MemoryEfficient, self).__init__()
 
-        self.truncate_idx = truncate_idx
+        self.mutable_idx = mutable_idx
         self.free_num = free_idx[1] + 1
         self.A = A.requires_grad_(False)
         self.Weight_Proj = WzProj.t().requires_grad_(False)
@@ -303,11 +306,8 @@ class LDRPM_MemoryEfficient(nn.Module):
 
             return lhs / rhs
 
-    def truncate(self, b_primal):
-        return b_primal[:, self.truncate_idx[0]:self.truncate_idx[1]], b_primal
-
     def forward(self, z, Bias_Proj, b_0):
-        b_truncated, b_0 = self.truncate(b_0)
+        b_truncated = b_0[:, self.mutable_idx]
         z_LDR = self.z0 + b_truncated @ self.Q  # (bsz, const_num) @ (const_num, var_num) -> (bsz, var_num)
         z_eq = Bias_Proj + z @ self.Weight_Proj  # z0 \in set A
 
@@ -334,12 +334,10 @@ class LDRPM_MemoryEfficient(nn.Module):
         alpha_lower = torch.max(alphas_geq, dim=1).values  # (bsz, )
         alpha_upper = torch.min(alphas_leq, dim=1).values  # (bsz, )
         alpha = torch.where(alpha_lower <= alpha_upper, alpha_lower, torch.ones_like(alpha_lower))
-        # #print(f'alphas is {alphas}')
-        # print(f'alpha_lower is {alpha_lower}')
-        # print(f'alpha_upper is {alpha_upper}')
-        # print(f'alpha is {alpha}')
         z_star = z_LDR * alpha.unsqueeze(1) + z_eq * (1 - alpha).unsqueeze(1)
         return z_star, 0, alpha
+        #return z_eq, 0, alpha
+        # return z_LDR, 0, alpha
 
 
 class GMDS(nn.Module):
@@ -415,15 +413,15 @@ Paper: b ---> b (the constant parameters)
 
 class OptProjNN(nn.Module):
     def __init__(self, input_dim, hidden_dim, hidden_num, output_dim,
-                 truncate_idx, free_idx, A, Q, z0, WzProj, WbProj,
+                 mutable_idx, free_idx, A, Q, z0, WzProj, WbProj,
                  max_iter, eq_tol, ineq_tol, proj_method='POCS', rho=1.0):
         super(OptProjNN, self).__init__()
 
-        self.optimality_layers = OptimalityLayers(input_dim, hidden_dim, hidden_num, output_dim, truncate_idx)
-        self.init_projection(truncate_idx, free_idx, A, Q, z0, WzProj, max_iter, eq_tol, ineq_tol, proj_method, rho)
+        self.optimality_layers = OptimalityLayers(input_dim, hidden_dim, hidden_num, output_dim, mutable_idx)
+        self.init_projection(mutable_idx, free_idx, A, Q, z0, WzProj, max_iter, eq_tol, ineq_tol, proj_method, rho)
         self.WbProj = WbProj.requires_grad_(False)
 
-    def init_projection(self, truncate_idx, free_idx, A, Q, z0, WzProj, max_iter, eq_tol, ineq_tol, proj_method, rho):
+    def init_projection(self, mutable_idx, free_idx, A, Q, z0, WzProj, max_iter, eq_tol, ineq_tol, proj_method, rho):
         if proj_method == 'POCS':
             self.projection = POCS(free_idx, A, WzProj, max_iter, eq_tol, ineq_tol)
         elif proj_method == 'EAPM':
@@ -433,7 +431,7 @@ class OptProjNN(nn.Module):
         elif proj_method == 'LDRPM':
             self.projection = LDRPM(free_idx, A, WzProj, Q, z0, eq_tol, ineq_tol)
         elif proj_method == 'LDRPMme':
-            self.projection = LDRPM_MemoryEfficient(truncate_idx, free_idx, A, WzProj, Q, z0, eq_tol, ineq_tol)
+            self.projection = LDRPM_MemoryEfficient(mutable_idx, free_idx, A, WzProj, Q, z0, eq_tol, ineq_tol)
         else:
             raise ValueError('Invalid projection method')
 
@@ -448,11 +446,11 @@ class OptProjNN(nn.Module):
 # todo: this must be updated, i guess bugs must happen
 class DualOptProjNN(nn.Module):
     def __init__(self, input_dim, hidden_dim, hidden_num, output_dim,
-                 truncate_idx, free_idx, A, WzProj, WbProj,
+                 mutable_idx, free_idx, A, WzProj, WbProj,
                  max_iter, eq_tol, ineq_tol, projection='POCS', rho=1.0, b_dual=None):
         super(DualOptProjNN, self).__init__()
 
-        self.optimality_layers = OptimalityLayers(input_dim, hidden_dim, hidden_num, output_dim, truncate_idx)
+        self.optimality_layers = OptimalityLayers(input_dim, hidden_dim, hidden_num, output_dim, mutable_idx)
         self.init_projection(free_idx, A, WzProj, max_iter, eq_tol, ineq_tol, projection, rho)
         self.Bias_Proj = (b_dual @ WbProj.t()).requires_grad_(False)
 
@@ -472,10 +470,10 @@ class DualOptProjNN(nn.Module):
 
 class VanillaNN(nn.Module):
     def __init__(self, input_dim, hidden_dim, hidden_num, output_dim,
-                 truncate_idx):
+                 mutable_idx):
         super(VanillaNN, self).__init__()
 
-        self.truncate_idx = truncate_idx
+        self.mutable_idx = mutable_idx
         self.layers = nn.ModuleList()
         self.layers.append(nn.Linear(input_dim, hidden_dim))
         for _ in range(hidden_num - 1):
@@ -487,7 +485,7 @@ class VanillaNN(nn.Module):
         nn.init.zeros_(self.layers[-1].bias)
 
     def forward(self, b_primal):
-        b_primal = b_primal[:, self.truncate_idx[0]:self.truncate_idx[1]]
+        b_primal = b_primal[:, self.mutable_idx]
         for layer in self.layers[:-1]:
             b_primal = F.relu(layer(b_primal))
         out = self.layers[-1](b_primal)

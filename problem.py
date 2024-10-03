@@ -8,7 +8,7 @@ class PrimalLP:
                    s >= 0
     where b will be inputs and x will be outputs in the neural network
     """
-    def __init__(self, c, A, free_idx, truncate_idx):
+    def __init__(self, c, A, free_idx, mutable_idx):
         self.name = 'primal_lp'
         self._device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -19,13 +19,10 @@ class PrimalLP:
         self._var_num = A.shape[1]
         self._free_idx = free_idx  # free_idx[0] = 0, free_idx[1] = free_num - 1, made by default
         self._free_num = free_idx[1] + 1
-        self._truncate_idx = truncate_idx
+        self._mutable_idx = mutable_idx
 
         self._free_W = torch.eye(A.shape[1])[free_idx[0]:free_idx[1]].to(self._device)
         self._s_W = torch.cat((torch.eye(A.shape[1])[:free_idx[0]], torch.eye(A.shape[1])[free_idx[1]+1:]), dim=0).to(self._device)
-
-        self._mutable_W = torch.eye(A.shape[1])[truncate_idx[0]:truncate_idx[1]].to(self._device)
-        self._immutable_W = torch.cat((torch.eye(A.shape[1])[:truncate_idx[0]], torch.eye(A.shape[1])[truncate_idx[1]+1:]), dim=0).to(self._device)
 
     @staticmethod
     def b(in_val):
@@ -56,8 +53,8 @@ class PrimalLP:
         return self._free_num
 
     @property
-    def truncate_idx(self):
-        return self._truncate_idx
+    def mutable_idx(self):
+        return self._mutable_idx
 
     @property
     def free_W(self):
@@ -68,14 +65,6 @@ class PrimalLP:
         return self._s_W
 
     @property
-    def mutable_W(self):
-        return self._mutable_W
-
-    @property
-    def immutable_W(self):
-        return self._immutable_W
-
-    @property
     def device(self):
         return self._device
 
@@ -84,12 +73,6 @@ class PrimalLP:
     #
     # def get_s(self, x):
     #     return x @ self._s_W.t()
-
-    def get_mutable(self, x):
-        return x @ self._mutable_W.t()
-
-    def get_immutable(self, x):
-        return x @ self._immutable_W.t()
 
     def obj_fn(self, x, in_val=None):
         return x @ self.c
@@ -116,7 +99,7 @@ class DualLP:
     where -c (b_primal) will be inputs and y will be outputs in the neural network
     """
 
-    def __init__(self, b, A, free_idx, truncate_idx):
+    def __init__(self, b, A, free_idx, mutable_idx):
         self.name = 'dual_lp'
         self._device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -127,13 +110,10 @@ class DualLP:
         self._var_num = A.shape[1]
         self._free_idx = free_idx  # free_idx[0] = 0, free_idx[1] = free_num - 1, made by default
         self._free_num = free_idx[1] + 1
-        self._truncate_idx = truncate_idx
+        self._mutable_idx = mutable_idx
 
         self._free_W = torch.eye(A.shape[1])[free_idx[0]:free_idx[1]].to(self._device)
         self._s_W = torch.cat((torch.eye(A.shape[1])[:free_idx[0]], torch.eye(A.shape[1])[free_idx[1]+1:]), dim=0).to(self._device)
-
-        self._mutable_W = torch.eye(A.shape[1])[truncate_idx[0]:truncate_idx[1]].to(self._device)
-        self._immutable_W = torch.cat((torch.eye(A.shape[1])[:truncate_idx[0]], torch.eye(A.shape[1])[truncate_idx[1]+1:]), dim=0).to(self._device)
 
     def b(self, in_val=None):
         return self._b
@@ -159,8 +139,8 @@ class DualLP:
         return self._free_num
 
     @property
-    def truncate_idx(self):
-        return self._truncate_idx
+    def mutable_idx(self):
+        return self._mutable_idx
 
     @property
     def free_W(self):
@@ -171,28 +151,8 @@ class DualLP:
         return self._s_W
 
     @property
-    def mutable_W(self):
-        return self._mutable_W
-
-    @property
-    def immutable_W(self):
-        return self._immutable_W
-
-    @property
     def device(self):
         return self._device
-
-    # def get_free(self, x):
-    #     return x @ self._free_W.t()
-    #
-    # def get_s(self, x):
-    #     return x @ self._s_W.t()
-
-    def get_mutable(self, x):
-        return x @ self._mutable_W.t()
-
-    def get_immutable(self, x):
-        return x @ self._immutable_W.t()
 
     @staticmethod
     def obj_fn(y, c):

@@ -33,7 +33,7 @@ def load_solvers(args, problem):
         solver = ldr_solver
     elif args.projection == 'LDRPMme':
         Q_LDR, z0_LDR = load_LDR(args, problem)
-        ldrme_solver = models.LDRPM_MemoryEfficient(problem.truncate_idx, problem.free_idx,
+        ldrme_solver = models.LDRPM_MemoryEfficient(problem.mutable_idx, problem.free_idx,
                                                     problem.A, Wz_proj, Q_LDR, z0_LDR, args.eq_tol, args.ineq_tol)
         solver = ldrme_solver
     else:
