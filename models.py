@@ -225,67 +225,8 @@ class PeriodicEAPM(nn.Module):
 
 
 class LDRPM(nn.Module):
-    # todo: warning no longer used
-    def __init__(self, free_idx, A, WzProj, Q, z0, eq_tol, ineq_tol):
-        super(LDRPM, self).__init__()
-
-        self.free_num = free_idx[1] + 1
-        self.A = A.requires_grad_(False)
-        self.Weight_Proj = WzProj.t().requires_grad_(False)
-        self.Q = Q.t().requires_grad_(False)
-        self.z0 = z0.requires_grad_(False)
-        self.eq_tol = eq_tol
-        self.ineq_tol = ineq_tol
-
-    def stopping_criterion(self, z, b_0):
-        with torch.no_grad():
-            eq_residual = z @ self.A.t() - b_0
-            eq_lhs = torch.mean(torch.abs(eq_residual), dim=0)
-            ineq_residual = torch.relu(-z[:, self.free_num:])
-            ineq_lhs = torch.mean(torch.abs(ineq_residual), dim=0)
-            lhs = torch.sqrt(eq_lhs.pow(2).sum() + ineq_lhs.pow(2).sum())
-            rhs = 1 + torch.sqrt(torch.mean(b_0, dim=0).pow(2).sum() + 0)
-
-            return lhs/rhs
-
-    def forward(self, z, Bias_Proj, b_0):
-        z_LDR = self.z0 + b_0 @ self.Q  # (bsz, const_num) @ (const_num, var_num) -> (bsz, var_num)
-        z_eq = Bias_Proj + z @ self.Weight_Proj  # z0 \in set A
-
-        s = z_LDR - z_eq
-        mask_geq, mask_leq = s>0, s<0
-        alphas = - z_eq / s  # (bsz, var_num)
-        """
-        Note that alphas * mask results in (bsz, var_num) tensor where the elements that are not in the mask are 0
-        
-        if s>0, then alpha >= -z_eq / s where z_eq can be positive or negative so that rhs can be positive or negative
-        as we want to take the maximum, and let alpha in range of [0, 1], 
-        when the maximum of rhs is positive, then the 0s in the indexes where s<=0 won't affect the maximum
-        when the maximum of rhs is negative, then the 0s in the indexes where s<=0 can force the maximum to be 0
-        
-        if s<0, then alpha <= -z_eq / s where z_eq must be positive if s = (z_LDR - z_eq) <0 so that rhs must be positive
-        as we want to take the minimum, and let alpha in range of [0, 1], 
-        when the minimum of rhs is positive (always), then 0s in the indexes where s>=0 will affect the minimum
-        so we need to change default values that are not in the mask to be 1
-        """
-        alphas_geq = alphas * mask_geq
-        alphas_leq = alphas * mask_leq
-        # change the default values that are not in the mask to be 1
-        alphas_leq[~mask_leq] = 1.0
-        alpha_lower = torch.max(alphas_geq, dim=1).values  # (bsz, )
-        alpha_upper = torch.min(alphas_leq, dim=1).values  # (bsz, )
-        alpha = torch.where(alpha_lower <= alpha_upper, alpha_lower, torch.ones_like(alpha_lower))
-        # #print(f'alphas is {alphas}')
-        # print(f'alpha_lower is {alpha_lower}')
-        # print(f'alpha_upper is {alpha_upper}')
-        # print(f'alpha is {alpha}')
-        z_star = z_LDR * alpha.unsqueeze(1) + z_eq * (1 - alpha).unsqueeze(1)
-        return z_star, 0, alpha
-
-
-class LDRPM_MemoryEfficient(nn.Module):
     def __init__(self, mutable_idx, free_idx, A, WzProj, Q, z0, eq_tol, ineq_tol):
-        super(LDRPM_MemoryEfficient, self).__init__()
+        super(LDRPM, self).__init__()
 
         self.mutable_idx = mutable_idx
         self.free_num = free_idx[1] + 1
@@ -337,50 +278,6 @@ class LDRPM_MemoryEfficient(nn.Module):
 
         z_star = z_LDR * alpha.unsqueeze(1) + z_eq * (1 - alpha).unsqueeze(1)
         return z_star, 0, alpha
-
-
-        # tol = 1e-6
-        # s = z_LDR - z_eq
-        # mask_geq, mask_leq = s > 0, s < 0
-        # alphas = - z_eq / s  # (bsz, var_num)
-        # alphas[torch.abs(s) < tol] = 0.0
-        # """
-        # Note that alphas * mask results in (bsz, var_num) tensor where the elements that are not in the mask are 0
-        #
-        # if s>0, then alpha >= -z_eq / s where z_eq can be positive or negative so that rhs can be positive or negative
-        # as we want to take the maximum, and let alpha in range of [0, 1],
-        # when the maximum of rhs is positive, then the 0s in the indexes where s<=0 won't affect the maximum
-        # when the maximum of rhs is negative, then the 0s in the indexes where s<=0 can force the maximum to be 0
-        #
-        # if s<0, then alpha <= -z_eq / s where z_eq must be positive if s = (z_LDR - z_eq) <0 so that rhs must be positive
-        # as we want to take the minimum, and let alpha in range of [0, 1],
-        # when the minimum of rhs is positive (always), then 0s in the indexes where s>=0 will affect the minimum
-        # so we need to change default values that are not in the mask to be 1
-        # """
-        # alphas_geq = alphas * mask_geq
-        # alphas_leq = alphas * mask_leq
-        # # change the default values that are not in the mask to be 1
-        # alphas_leq[~mask_leq] = 1.0
-        # alpha_lower = torch.max(alphas_geq, dim=1).values  # (bsz, )
-        # alpha_upper = torch.min(alphas_leq, dim=1).values  # (bsz, )
-        # alpha = torch.where(alpha_lower <= alpha_upper, alpha_lower, torch.ones_like(alpha_lower))
-        # # print('a new point projection starts')
-        # # print(f'alphas:\n{alphas[:1, :10]}')
-        # # print(f's:\n{s[:1, :10]}')
-        # # print(f'z_LDR:\n{z_LDR[:1, :10]}')
-        # # print(f'z_eq:\n{z_eq[:1, :10]}')
-        # # print(f'alpha_geq:\n{alphas_geq[:1, :10]}')
-        # # print(f'alpha_lower:\n{alpha_lower}')
-        # # print('\n')
-        # # print(f'alpha_leq:\n{alphas_leq[:1, :10]}')
-        # # print(f'alpha_upper:\n{alpha_upper}')
-        # # print('\n')
-        # # print(f'alpha:\n{alpha}')
-        # # print('\n')
-        # z_star = z_LDR * alpha.unsqueeze(1) + z_eq * (1 - alpha).unsqueeze(1)
-        # return z_star, 0, alpha
-        # #return z_eq, 0, alpha
-        # # return z_LDR, 0, alpha
 
 
 class GMDS(nn.Module):
@@ -472,9 +369,7 @@ class OptProjNN(nn.Module):
         elif proj_method == 'PeriodicEAPM':
             self.projection = PeriodicEAPM(free_idx, A, WzProj, max_iter, eq_tol, ineq_tol, rho)
         elif proj_method == 'LDRPM':
-            self.projection = LDRPM(free_idx, A, WzProj, Q, z0, eq_tol, ineq_tol)
-        elif proj_method == 'LDRPMme':
-            self.projection = LDRPM_MemoryEfficient(mutable_idx, free_idx, A, WzProj, Q, z0, eq_tol, ineq_tol)
+            self.projection = LDRPM(mutable_idx, free_idx, A, WzProj, Q, z0, eq_tol, ineq_tol)
         else:
             raise ValueError('Invalid projection method')
 
