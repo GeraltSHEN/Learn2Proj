@@ -1,6 +1,5 @@
 from utils import *
 import torch
-import torch.nn as nn
 import csv
 import numpy as np
 from torch.utils.data import DataLoader, TensorDataset

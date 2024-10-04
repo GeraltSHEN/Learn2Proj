@@ -1,14 +1,9 @@
 from utils import load_problem_new, load_data_new, load_W_proj, load_LDR, process_for_training, get_gap_mean_worst
 import torch
 import models
-
 import csv
-import numpy as np
-from torch.utils.data import DataLoader, TensorDataset
-import random
 import time
-import os
-import pickle
+
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -20,12 +15,12 @@ def load_solvers(args, problem):
         pocs_solver = models.POCS(problem.free_idx, problem.A, Wz_proj, args.max_iter, args.eq_tol, args.ineq_tol)
         solver = pocs_solver
     elif args.projection == 'EAPM':
-        if args.periodic:
-            eapm_solver = models.PeriodicEAPM(problem.free_idx, problem.A, Wz_proj, args.max_iter, args.eq_tol,
-                                              args.ineq_tol, args.rho)
-        else:
-            eapm_solver = models.EAPM(problem.free_idx, problem.A, Wz_proj, args.max_iter, args.eq_tol, args.ineq_tol,
-                                      args.rho)
+        eapm_solver = models.EAPM(problem.free_idx, problem.A, Wz_proj, args.max_iter, args.eq_tol, args.ineq_tol,
+                                  args.rho)
+        solver = eapm_solver
+    elif args.projection == 'PeriodicEAPM':
+        eapm_solver = models.PeriodicEAPM(problem.free_idx, problem.A, Wz_proj, args.max_iter, args.eq_tol,
+                                          args.ineq_tol, args.rho)
         solver = eapm_solver
     elif args.projection == 'LDRPM':
         Q_LDR, z0_LDR = load_LDR(args, problem)

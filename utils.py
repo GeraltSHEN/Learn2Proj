@@ -1,9 +1,3 @@
-import torch
-import csv
-import json
-import numpy as np
-from scipy.linalg import null_space
-import torch.optim as optim
 import torch.nn.functional as F
 import models
 from torch.utils.data import DataLoader, TensorDataset
@@ -56,8 +50,8 @@ def load_fixed_params(args):
         bc_TYPE = "b_dual"
     else:
         raise ValueError('Invalid problem')
-    A = torch.load(f'./data/{args.dataset}/{A_TYPE}_dense.pt')  # here we change it to dense
-    b_or_c = torch.load(f'./data/{args.dataset}/{bc_TYPE}.pt')
+    A = torch.load(f'./data/{args.dataset}/{A_TYPE}_dense.pt', weights_only=True)  # here we change it to dense
+    b_or_c = torch.load(f'./data/{args.dataset}/{bc_TYPE}.pt', weights_only=True)
     print(f'dtype of {A_TYPE}: {A.dtype}, dtype of {bc_TYPE}: {b_or_c.dtype}')
     A = adjust_precision(args, A, f'{A_TYPE}_')
     b_or_c = adjust_precision(args, b_or_c, f'{bc_TYPE}_')
@@ -76,13 +70,13 @@ def load_fixed_params(args):
 
 def load_unfixed_params(args, DATA_TYPE, for_training=False):
     assert args.self_supervised
-    inputs = torch.load(f'./data/{args.dataset}/{DATA_TYPE}/input_{DATA_TYPE}.pt')
+    inputs = torch.load(f'./data/{args.dataset}/{DATA_TYPE}/input_{DATA_TYPE}.pt', weights_only=True)
     inputs = adjust_precision(args, inputs, 'inputs_')
 
     if for_training:
         targets = torch.zeros(inputs.shape[0])
     else:
-        targets = torch.load(f'./data/{args.dataset}/{DATA_TYPE}/self_target_{DATA_TYPE}.pt')
+        targets = torch.load(f'./data/{args.dataset}/{DATA_TYPE}/self_target_{DATA_TYPE}.pt', weights_only=True)
 
     targets = adjust_precision(args, targets, 'targets_')
     print(f'input_{DATA_TYPE} shape: {inputs.shape}, target_{DATA_TYPE} shape: {targets.shape}')
@@ -119,7 +113,7 @@ def load_preconditions(args, A):
         print(f'Scaling eq_tol by D1')
         print('ineq_tol is not scaled because rhs is all 0')
         scaled_eq_tolerance = args.f_tol * D1
-        args.eq_tol = scaled_eq_tolerance
+        args.eq_tol = scaled_eq_tolerance.to(device)
         args.ineq_tol = args.f_tol
         print(f'Scaled eq_tol range: [{args.eq_tol.min()}, {args.eq_tol.max()}]')
     return D1, D2
@@ -373,37 +367,37 @@ def load_model_new(args, problem):
 #         return L
 
 
-def calc_N(A):
-    """
-    return the orthonormal basis of the null space of A
-    """
-    # if A is in sparse format, change it into dense
-    if A.is_sparse:
-        A = A.to_dense()
-    start = time.time()
-    N = torch.from_numpy(null_space(A.detach().cpu().numpy())).to(device)
-    end = time.time()
-    print(f'N calculation time: {end - start:.4f}s, N shape: {N.shape}')
-    print_memory(N)
-    return N
+# def calc_N(A):
+#     """
+#     return the orthonormal basis of the null space of A
+#     """
+#     # if A is in sparse format, change it into dense
+#     if A.is_sparse:
+#         A = A.to_dense()
+#     start = time.time()
+#     N = torch.from_numpy(null_space(A.detach().cpu().numpy())).to(device)
+#     end = time.time()
+#     print(f'N calculation time: {end - start:.4f}s, N shape: {N.shape}')
+#     print_memory(N)
+#     return N
 
 
-def load_N(args, problem):
-    if 'primal' in args.problem:
-        extension = 'primal'
-    elif 'dual' in args.problem:
-        extension = 'dual'
-    else:
-        raise ValueError('Invalid problem')
-    try:
-        N = torch.load('./data/' + args.dataset + f'/{extension}_N.pt').to(device)
-        return N
-    except:
-        print(f'{extension}_N.pt not found. Calculating...')
-        N = calc_N(problem.A)
-        torch.save(N.detach().cpu(), './data/' + args.dataset + f'/{extension}_N.pt')
-        print(f'{extension}_N.pt saved. Terminating.')
-        return N
+# def load_N(args, problem):
+#     if 'primal' in args.problem:
+#         extension = 'primal'
+#     elif 'dual' in args.problem:
+#         extension = 'dual'
+#     else:
+#         raise ValueError('Invalid problem')
+#     try:
+#         N = torch.load('./data/' + args.dataset + f'/{extension}_N.pt').to(device)
+#         return N
+#     except:
+#         print(f'{extension}_N.pt not found. Calculating...')
+#         N = calc_N(problem.A)
+#         torch.save(N.detach().cpu(), './data/' + args.dataset + f'/{extension}_N.pt')
+#         print(f'{extension}_N.pt saved. Terminating.')
+#         return N
 
 
 def calc_W_proj(args, A):
@@ -434,8 +428,8 @@ def load_W_proj(args, problem):
     else:
         raise ValueError('Invalid problem')
     try:
-        Wz_proj = torch.load('./data/' + args.dataset + f'/{extension}_Wz_proj_{args.float64}_{args.precondition}.pt').to(device)
-        Wb_proj = torch.load('./data/' + args.dataset + f'/{extension}_Wb_proj_{args.float64}_{args.precondition}.pt').to(device)
+        Wz_proj = torch.load('./data/' + args.dataset + f'/{extension}_Wz_proj_{args.float64}_{args.precondition}.pt', weights_only=True).to(device)
+        Wb_proj = torch.load('./data/' + args.dataset + f'/{extension}_Wb_proj_{args.float64}_{args.precondition}.pt', weights_only=True).to(device)
         Wz_proj = adjust_precision(args, Wz_proj, 'Wz_proj_')
         Wb_proj = adjust_precision(args, Wb_proj, 'Wb_proj_')
         return Wz_proj, Wb_proj
@@ -452,14 +446,14 @@ def load_W_proj(args, problem):
 
 def load_LDR(args, problem):
     if args.ldr_type == 'feas':
-        Q_LDR = torch.load('./data/' + args.dataset + f'/Q_feas_LDR.pt').to(device)
-        z0_LDR = torch.load('./data/' + args.dataset + f'/z0_feas_LDR.pt').to(device)
+        Q_LDR = torch.load('./data/' + args.dataset + f'/Q_feas_LDR.pt', weights_only=True).to(device)
+        z0_LDR = torch.load('./data/' + args.dataset + f'/z0_feas_LDR.pt', weights_only=True).to(device)
     elif args.ldr_type == 'opt':
-        Q_LDR = torch.load('./data/' + args.dataset + f'/Q_opt_LDR.pt').to(device)
-        z0_LDR = torch.load('./data/' + args.dataset + f'/z0_opt_LDR.pt').to(device)
+        Q_LDR = torch.load('./data/' + args.dataset + f'/Q_opt_LDR.pt', weights_only=True).to(device)
+        z0_LDR = torch.load('./data/' + args.dataset + f'/z0_opt_LDR.pt', weights_only=True).to(device)
     elif args.ldr_type == 'hybrid':
-        Q_LDR = torch.load('./data/' + args.dataset + f'/Q_LDR.pt').to(device)
-        z0_LDR = torch.load('./data/' + args.dataset + f'/z0_LDR.pt').to(device)
+        Q_LDR = torch.load('./data/' + args.dataset + f'/Q_LDR.pt', weights_only=True).to(device)
+        z0_LDR = torch.load('./data/' + args.dataset + f'/z0_LDR.pt', weights_only=True).to(device)
     else:
         raise ValueError('Invalid ldr_type')
     Q_LDR = adjust_precision(args, Q_LDR, 'Q_LDR_')

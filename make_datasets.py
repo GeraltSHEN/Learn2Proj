@@ -1,11 +1,5 @@
-from utils import *
 import numpy as np
 import torch
-import torch.nn as nn
-from torch.utils.data import DataLoader, TensorDataset
-from train import load_weights
-# import osqp
-import os
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 torch.set_default_dtype(torch.float64)

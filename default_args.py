@@ -48,7 +48,7 @@ def get_default_args(dataset):
         defaults['learn2proj'] = False
         defaults['proj_epochs'] = 500
         defaults['precondition'] = 'none'  # none, Pock-Chambolle, Ruiz
-        defaults['periodic'] = False
+        # defaults['periodic'] = False
 
     elif dataset == 'DCOPF_large':
         # dataset related parameters
@@ -95,7 +95,7 @@ def get_default_args(dataset):
         defaults['learn2proj'] = False
         defaults['proj_epochs'] = 500
         defaults['precondition'] = 'none'
-        defaults['periodic'] = False
+        # defaults['periodic'] = False
 
     elif dataset == 'DCOPF_':
         # defaults['truncate_idx'] = (4,1867)
@@ -142,7 +142,7 @@ def get_default_args(dataset):
         defaults['learn2proj'] = False
         defaults['proj_epochs'] = 500
         defaults['precondition'] = 'none'  # none, Pock-Chambolle, Ruiz
-        defaults['periodic'] = False
+        # defaults['periodic'] = False
 
     elif dataset == 'case118':
         # defaults['truncate_idx'] = (0,118)  # idx of tensor + 1, e.g. (0,117) --> (0,118), if you have 118 nodes, then it is (0,118)
@@ -184,12 +184,12 @@ def get_default_args(dataset):
         defaults[ 'f_tol' ] = 1e-8
         defaults['eq_tol'] = 1e-6
         defaults['ineq_tol'] = 1e-6
-        defaults['projection'] = 'LDRPMme'  # POCS, EAPM, LDRPM, LDRPMme
+        defaults['projection'] = 'LDRPM'  # POCS, EAPM, LDRPM, LDRPMme
         defaults['rho'] = 1.0
         defaults['learn2proj'] = False
         defaults['proj_epochs'] = 500
         defaults['precondition'] = 'none'  # none, Pock-Chambolle, Ruiz
-        defaults['periodic'] = False
+        # defaults['periodic'] = False
         defaults['ldr_type'] = 'feas'  # opt or feas or hybrid
 
     elif dataset == 'case39':
@@ -237,7 +237,7 @@ def get_default_args(dataset):
         defaults['learn2proj'] = False
         defaults['proj_epochs'] = 500
         defaults['precondition'] = 'none'  # none, Pock-Chambolle, Ruiz
-        defaults['periodic'] = False
+        # defaults['periodic'] = False
         defaults['ldr_type'] = 'feas'  # opt or feas
 
     elif dataset == 'case39new':
@@ -280,12 +280,12 @@ def get_default_args(dataset):
         defaults[ 'f_tol' ] = 1e-6
         defaults['eq_tol'] = 1e-6
         defaults['ineq_tol'] = 1e-6
-        defaults['projection'] = 'LDRPMme'  # POCS, EAPM, LDRPM
+        defaults['projection'] = 'LDRPM'  # POCS, EAPM, LDRPM, PeriodicEAPM
         defaults['rho'] = 1.0
         defaults['learn2proj'] = False
         defaults['proj_epochs'] = 500
         defaults['precondition'] = 'none'  # none, Pock-Chambolle, Ruiz
-        defaults['periodic'] = False
+        # defaults['periodic'] = False
         defaults['ldr_type'] = 'feas'  # opt or feas
 
     else:
