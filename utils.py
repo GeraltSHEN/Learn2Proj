@@ -224,6 +224,16 @@ def load_model_new(args, problem):
                                  max_iter=args.max_iter, eq_tol=args.eq_tol, ineq_tol=args.ineq_tol,
                                  proj_method=args.projection, rho=args.rho)
 
+    elif args.model == 'LDRNNSplit':
+        Wz_proj, Wb_proj = load_W_proj(args, problem)
+        Q, z0 = load_LDR(args, problem)
+        model = models.LDRNNSplit(input_dim=input_dim, hidden_dim=hidden_dim,
+                                  hidden_num=hidden_num, output_dim=output_dim,
+                                  mutable_idx=problem.mutable_idx, free_idx=problem.free_idx,
+                                  A=problem.A, Q=Q, z0=z0,
+                                  WzProj=Wz_proj, WbProj=Wb_proj,
+                                  max_iter=args.max_iter, eq_tol=args.eq_tol, ineq_tol=args.ineq_tol)
+
     elif args.model == 'dual_nn':
         Wz_proj, Wb_proj = load_W_proj(args, problem)
         model = models.DualOptProjNN(input_dim=input_dim, hidden_dim=hidden_dim,
@@ -640,6 +650,9 @@ def get_loss(z_star, z1, alpha, targets, inputs, problem, args, loss_type):
 def inputs2losses(inputs, targets, model, problem, args, loss_type):
     losses = []
 
+    if args.model == 'LDRNNSplit':
+        assert loss_type == 'split_obj'
+
     if loss_type == 'obj':
         z_star, z1, proj_num, alpha = model(inputs)
         predicted_obj = problem.obj_fn(z_star, inputs).mean()
@@ -668,8 +681,22 @@ def inputs2losses(inputs, targets, model, problem, args, loss_type):
         z_star, z1, proj_num, alpha = model(inputs)
         penalty = problem.obj_example * alpha
         losses.append(penalty.mean())
+
+    elif loss_type == 'split_obj':
+        z_LDR, z_eq, proj_num, alpha = model(inputs)
+        loss_LDR = problem.obj_fn(z_LDR * alpha.unsqueeze(1), inputs).mean()
+        losses.append(loss_LDR)
+
+        z_LDR, z_eq, proj_num, alpha = model(inputs)
+        loss_eq = problem.obj_fn(z_eq * (1 - alpha).unsqueeze(1), inputs).mean()
+        losses.append(loss_eq)
+
+        z1 = z_eq
+        z_star = z_LDR * alpha.unsqueeze(1) + z_eq * (1 - alpha).unsqueeze(1)
+
     else:
         raise ValueError('Invalid loss_type')
+
     return losses, z_star, z1, proj_num, alpha
 
 

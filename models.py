@@ -249,7 +249,6 @@ class LDRPM(nn.Module):
         z_LDR = self.z0 + b_truncated @ self.Q  # (bsz, const_num) @ (const_num, var_num) -> (bsz, var_num)
         z_eq = Bias_Proj + z @ self.Weight_Proj  # z0 \in set A
 
-        s = z_LDR - z_eq
         mask_violation = z_eq < 0
 
         masked_z_eq = z_eq * mask_violation
@@ -375,6 +374,79 @@ class OptProjNN(nn.Module):
             Bias_Proj = b_primal @ self.WbProj.t()
         z_star, proj_num, alpha = self.projection(z, Bias_Proj, b_primal)
         return z_star, z, proj_num, alpha
+
+
+
+
+
+class LDRNNSplit(nn.Module):
+    def __init__(self, input_dim, hidden_dim, hidden_num, output_dim,
+                 mutable_idx, free_idx, A, Q, z0, WzProj, WbProj,
+                 max_iter, eq_tol, ineq_tol):
+        super(LDRNNSplit, self).__init__()
+
+        self.mutable_idx = mutable_idx
+
+        # optimality layers
+        self.optimality_layers = OptimalityLayers(input_dim, hidden_dim, hidden_num, output_dim, mutable_idx)
+
+        self.free_num = free_idx[1] + 1
+        self.A = A.requires_grad_(False)
+        self.Weight_Proj = WzProj.t().requires_grad_(False)
+        self.WbProj = WbProj.requires_grad_(False)
+        self.Q = Q.t().requires_grad_(False)
+        self.z0 = z0.requires_grad_(False)
+        self.eq_tol = eq_tol
+        self.ineq_tol = ineq_tol
+
+
+    def stopping_criterion(self, z, b_0):
+        with torch.no_grad():
+            eq_residual = z @ self.A.t() - b_0
+            eq_lhs = torch.mean(torch.abs(eq_residual), dim=0)
+            ineq_residual = torch.relu(-z[:, self.free_num:])
+            ineq_lhs = torch.mean(torch.abs(ineq_residual), dim=0)
+            lhs = torch.sqrt(eq_lhs.pow(2).sum() + ineq_lhs.pow(2).sum())
+            rhs = 1 + torch.sqrt(torch.mean(b_0, dim=0).pow(2).sum() + 0)
+
+            return lhs / rhs
+
+    def forward(self, b_primal):
+        z, _, _ = self.optimality_layers(b_primal)
+        with torch.no_grad():
+            Bias_Proj = b_primal @ self.WbProj.t()
+
+        b_truncated = b_primal[:, self.mutable_idx]
+        z_LDR = self.z0 + b_truncated @ self.Q  # (bsz, const_num) @ (const_num, var_num) -> (bsz, var_num)
+        z_eq = Bias_Proj + z @ self.Weight_Proj  # z0 \in set A
+
+        mask_violation = z_eq < 0
+
+        masked_z_eq = z_eq * mask_violation
+        masked_s = z_LDR - masked_z_eq
+        # disturb the 0s in masked_s to avoid division by 0
+        # 0s in masked_s only caused by z_LDR_i = 0 and masked_z_eq_i = 0
+        # disturbance doesn't affect the result as the alpha for these indexes will be 0 (masked_z_eq_i = 0)
+        masked_s[masked_s == 0] = 99
+
+        alphas = - masked_z_eq / masked_s  # (bsz, var_num)
+        alpha = torch.max(alphas, dim=1).values  # (bsz, )
+
+        if self.training:
+            return z_LDR, z_eq, 0, alpha
+        else:
+            z_star = z_LDR * alpha.unsqueeze(1) + z_eq * (1 - alpha).unsqueeze(1)
+            return z_star, z, 0, alpha
+
+
+
+
+
+
+
+
+
+
 
 
 # todo: this must be updated, i guess bugs must happen
