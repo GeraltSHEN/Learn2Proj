@@ -548,21 +548,20 @@ def load_LDR(args, problem):
 #     return data_dict, problem
 
 
-
-#
-# def get_optimizer_new(args, model):
-#     params = model.parameters()
-#     if args.optimizer == 'Adam':
-#         optimizer = optim.Adam(params, lr=args.lr, weight_decay=args.weight_decay)
-#     elif args.optimizer == 'SGD':
-#         optimizer = optim.SGD(params, lr=args.lr, weight_decay=args.weight_decay)
-#     else:
-#         raise ValueError('Invalid optimizer')
-#     return optimizer
-
-
 def get_optimizer_new(args, model):
+    params = model.parameters()
+    if args.optimizer == 'Adam':
+        optimizer = torch.optim.Adam(params, lr=args.lr, weight_decay=args.weight_decay)
+    elif args.optimizer == 'SGD':
+        optimizer = torch.optim.SGD(params, lr=args.lr, weight_decay=args.weight_decay)
+    else:
+        raise ValueError('Invalid optimizer')
+    return optimizer
+
+
+def get_optimizer(args, model):
     """
+    Seems to be in conflict with the CONFIG
     register_post_accumulate_grad_hook to save gradient memory
     https://pytorch.org/tutorials/intermediate/optimizer_step_in_backward_tutorial.html
     """
@@ -636,6 +635,42 @@ def get_loss(z_star, z1, alpha, targets, inputs, problem, args, loss_type):
         return (predicted_obj + problem.obj_example * alpha).mean()
     else:
         raise ValueError('Invalid loss_type')
+
+
+def inputs2losses(inputs, targets, model, problem, args, loss_type):
+    losses = []
+
+    if loss_type == 'obj':
+        z_star, z1, proj_num, alpha = model(inputs)
+        predicted_obj = problem.obj_fn(z_star, inputs).mean()
+        losses.append(predicted_obj)
+
+    elif loss_type == 'soft':
+        z_star, z1, proj_num, alpha = model(inputs)
+        predicted_obj = problem.obj_fn(z_star, inputs).mean()
+        losses.append(predicted_obj)
+
+        z_star, z1, proj_num, alpha = model(inputs)
+        eq_residual = problem.eq_residual(z1, inputs)
+        ineq_residual = problem.ineq_residual(z1)
+        penalty = args.penalty_g * eq_residual.pow(2).sum(dim=-1) + args.penalty_h * ineq_residual.pow(2).sum(dim=-1)
+        losses.append(penalty.mean())
+
+    elif loss_type == 'mse':
+        z_star, z1, proj_num, alpha = model(inputs)
+        losses.append(F.mse_loss(z_star, targets))
+
+    elif loss_type == 'obj_alpha':
+        z_star, z1, proj_num, alpha = model(inputs)
+        predicted_obj = problem.obj_fn(z_star, inputs).mean()
+        losses.append(predicted_obj)
+
+        z_star, z1, proj_num, alpha = model(inputs)
+        penalty = problem.obj_example * alpha
+        losses.append(penalty.mean())
+    else:
+        raise ValueError('Invalid loss_type')
+    return losses, z_star, z1, proj_num, alpha
 
 
 def process_for_training(inputs, targets, args):

@@ -3,6 +3,8 @@ import torch
 import csv
 import numpy as np
 from torch.utils.data import DataLoader, TensorDataset
+from conflictfree.grad_operator import ConFIG_update
+from conflictfree.utils import get_gradient_vector,apply_gradient_vector
 import random
 import time
 import os
@@ -134,26 +136,24 @@ def Learning(args, data, problem, model, optimizer):
 
 def optimizer_step(model, optimizer, inputs, targets, args, data, problem, epoch_stats):
     start_time = time.time()
-    # optimizer.zero_grad()  # optimizer has been fused into the backward by the hook
-    z_star, z1, proj_num, alpha = model(inputs)
-    train_loss = get_loss(z_star, z1, alpha, targets, inputs, problem, args, args.loss_type)
-    train_loss.backward()
+    optimizer.zero_grad()  # optimizer has been fused into the backward by the hook, this seems in conflict with the ConFIG_update, cannot be deactivated
+    # z_star, z1, proj_num, alpha = model(inputs)  # model(inputs) embedded into inputs2loss()
+    # train_loss = get_loss(z_star, z1, alpha, targets, inputs, problem, args, args.loss_type)  # old version
+    # train_loss.backward()  # old version
 
-    # for name, param in model.named_parameters():
-    #     print(f'Parameter {name}: {param}')
-    #     if param.grad is not None:
-    #         if torch.isnan(param.grad).any():
-    #             print(f'Gradient {name} contains NaN: {param.grad}')
-    #         else:
-    #             print(f'Gradient {name}: {param.grad}')
-    #     else:
-    #         print(f'Gradient {name} is None')
-    # print(f'Train loss: {train_loss}')
+    losses, z_star, z1, proj_num, alpha = inputs2losses(inputs, targets, model, problem, args, args.loss_type)
+    train_loss = torch.cat([loss.unsqueeze(0) for loss in losses]).sum()
+    if args.ConFIG:
+        grads = []
+        for loss_i in losses:
+            loss_i.backward()
+            grads.append(get_gradient_vector(model))  #get loss-specific gradient
+        apply_gradient_vector(model, ConFIG_update(grads))  # calculate the conflict-free direction and set the condlict-free direction to the network
+    else:
+        train_loss.backward()
 
-
-    # optimizer.step()  # optimizer has been fused into the backward by the hook
+    optimizer.step()  # optimizer has been fused into the backward by the hook, this seems in conflict with the ConFIG_update, cannot be deactivated
     train_time = time.time() - start_time
-
     dict_agg(epoch_stats, 'train_time', train_time, op='sum')
     dict_agg(epoch_stats, 'train_proj', np.array([proj_num]))
     dict_agg(epoch_stats, 'train_loss', train_loss.detach().cpu().numpy())
