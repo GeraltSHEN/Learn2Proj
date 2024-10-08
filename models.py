@@ -120,15 +120,15 @@ class EAPM(nn.Module):
     def forward(self, z, Bias_Proj, b_0):
         z = Bias_Proj + z @ self.Weight_Proj  # z0 \in set A
 
-        print('\n\nA NEW POINT PROJECTION STARTS')
-        eq_stopping_criterion = torch.mean(torch.abs(z @ self.A.t() - b_0), dim=0)
-        print(f'\n\nthe eq_stopping_criterion (before loop) is {eq_stopping_criterion}')
-        print(f'the number of eq violation {((eq_stopping_criterion <= self.eq_tol) == False).sum().item()}')
-
-        z = Bias_Proj + z @ self.Weight_Proj  # z0 \in set A
-        eq_stopping_criterion = torch.mean(torch.abs(z @ self.A.t() - b_0), dim=0)
-        print(f'\n\nthe eq_stopping_criterion (before loop BUT 2ND) is {eq_stopping_criterion}')
-        print(f'the number of eq violation {((eq_stopping_criterion <= self.eq_tol) == False).sum().item()}')
+        # print('\n\nA NEW POINT PROJECTION STARTS')
+        # eq_stopping_criterion = torch.mean(torch.abs(z @ self.A.t() - b_0), dim=0)
+        # print(f'\n\nthe eq_stopping_criterion (before loop) is {eq_stopping_criterion}')
+        # print(f'the number of eq violation {((eq_stopping_criterion <= self.eq_tol) == False).sum().item()}')
+        #
+        # z = Bias_Proj + z @ self.Weight_Proj  # z0 \in set A
+        # eq_stopping_criterion = torch.mean(torch.abs(z @ self.A.t() - b_0), dim=0)
+        # print(f'\n\nthe eq_stopping_criterion (before loop BUT 2ND) is {eq_stopping_criterion}')
+        # print(f'the number of eq violation {((eq_stopping_criterion <= self.eq_tol) == False).sum().item()}')
 
         curr_iter = 0
         while curr_iter <= self.max_iter:
@@ -261,16 +261,16 @@ class LDRPM(nn.Module):
 
         alphas = - masked_z_eq / masked_s  # (bsz, var_num)
         alpha = torch.max(alphas, dim=1).values  # (bsz, )
-        if torch.isnan(alphas).any():
-            print('alphas has nan')
-            print(f'index of nan is {torch.isnan(alphas).nonzero(as_tuple=True)}')
-            for idx in torch.isnan(alphas).nonzero(as_tuple=True)[1].tolist():
-                print(f'nan idx is {idx}')
-                print(f'z_LDR values at this idx: {z_LDR[:, idx - 2:idx + 2]}')
-                print(f'masked_z_eq values at this idx: {masked_z_eq[:, idx - 2:idx + 2]}')
-                print(f'mask_violation values at this idx: {mask_violation[:, idx - 2:idx + 2]}')
-                print(f's values at this idx: {s[:, idx - 2:idx + 2]}')
-                print(f'alphas values at this idx: {alphas[:, idx - 2:idx + 2]}')
+        # if torch.isnan(alphas).any():
+        #     print('alphas has nan')
+        #     print(f'index of nan is {torch.isnan(alphas).nonzero(as_tuple=True)}')
+        #     for idx in torch.isnan(alphas).nonzero(as_tuple=True)[1].tolist():
+        #         print(f'nan idx is {idx}')
+        #         print(f'z_LDR values at this idx: {z_LDR[:, idx - 2:idx + 2]}')
+        #         print(f'masked_z_eq values at this idx: {masked_z_eq[:, idx - 2:idx + 2]}')
+        #         print(f'mask_violation values at this idx: {mask_violation[:, idx - 2:idx + 2]}')
+        #         print(f's values at this idx: {s[:, idx - 2:idx + 2]}')
+        #         print(f'alphas values at this idx: {alphas[:, idx - 2:idx + 2]}')
 
         z_star = z_LDR * alpha.unsqueeze(1) + z_eq * (1 - alpha).unsqueeze(1)
         return z_star, 0, alpha
