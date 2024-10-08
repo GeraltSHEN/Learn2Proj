@@ -166,6 +166,7 @@ def get_default_args(dataset):
         defaults['penalty_h'] = 50000
 
         # training related parameters
+        defaults['ConFIG'] = False
         defaults['loss_type'] = 'obj'
         defaults['optimizer'] = 'Adam'
         defaults['lr'] = 1e-4

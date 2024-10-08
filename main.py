@@ -40,6 +40,7 @@ def add_arguments():
                         help="penalty for equality violation Ax - b")
 
     # training related parameters
+    parser.add_argument("--ConFIG", default=False, type=bool)
     parser.add_argument("--loss_type", type=str)
     parser.add_argument("--optimizer", type=str)
     parser.add_argument("--lr", help="learning rate", type=float)
