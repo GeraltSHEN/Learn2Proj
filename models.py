@@ -431,6 +431,21 @@ class LDRNNSplit(nn.Module):
 
         alphas = - masked_z_eq / masked_s  # (bsz, var_num)
         alpha = torch.max(alphas, dim=1).values  # (bsz, )
+        # TODO: With the help of Config, alpha can be very very close to 0, but not exactly 0
+        # Not sure if this is problematic
+        # Let's enforce alpha to be exactly 0 if smaller than a tol
+        alpha[alpha < 1e-6] = 0
+        # if torch.isnan(alphas).any():
+        #     print('alphas has nan')
+        #     print(f'index of nan is {torch.isnan(alphas).nonzero(as_tuple=True)}')
+        #     for idx in torch.isnan(alphas).nonzero(as_tuple=True)[1].tolist():
+        #         print(f'nan idx is {idx}')
+        #         print(f'z_LDR values at this idx at batch 3: {z_LDR[:3, idx - 2:idx + 2]}')
+        #         print(f'masked_z_eq values at this idx at batch 3: {masked_z_eq[:3, idx - 2:idx + 2]}')
+        #         print(f'mask_violation values at this idx at batch 3: {mask_violation[:3, idx - 2:idx + 2]}')
+        #         print(f'masked_s values at this idx at batch 3: {masked_s[:3, idx - 2:idx + 2]}')
+        #         print(f'alphas values at this idx at batch 3: {alphas[:3, idx - 2:idx + 2]}')
+        #     raise ValueError('nan values in alphas')
 
         if self.training:
             return z_LDR, z_eq, 0, alpha

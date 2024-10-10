@@ -1,4 +1,4 @@
-from train import run_training
+from train import run_training, plot_distribution
 from utils import load_data_new, load_problem_new
 from pretrain import data_sanity_check, run_proj_exp
 import argparse
@@ -140,8 +140,8 @@ def main(args):
     elif args.job == 'data_sanity_check':
         print('data_sanity_check disabled')
         data_sanity_check(args)
-    elif args.job == 'make_datasets':
-        pass
+    elif args.job == 'plot_distribution':
+        plot_distribution(args)
     else:
         raise ValueError('Invalid job type')
         # data = load_data(args)

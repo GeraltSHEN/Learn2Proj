@@ -3,12 +3,13 @@ import torch
 import csv
 import numpy as np
 from torch.utils.data import DataLoader, TensorDataset
-from conflictfree.grad_operator import ConFIG_update
+from conflictfree.grad_operator import ConFIG_update, ConFIG_update_double
 from conflictfree.utils import get_gradient_vector,apply_gradient_vector
 import random
 import time
 import os
 import pickle
+import matplotlib.pyplot as plt
 
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -114,6 +115,7 @@ def Learning(args, data, problem, model, optimizer):
         print('Infer time (batched inference mean): {: .5f}'.format(np.mean(epoch_stats['val_time'])))
         print('Train projections: {}, Val projections: {}'.format(np.mean(epoch_stats['train_proj']),
                                                                   np.mean(epoch_stats['val_proj'])))
+
         # save stats
         if args.saveAllStats:
             if epoch == 0:
@@ -148,7 +150,7 @@ def optimizer_step(model, optimizer, inputs, targets, args, data, problem, epoch
         for loss_i in losses:
             loss_i.backward()
             grads.append(get_gradient_vector(model))  #get loss-specific gradient
-        apply_gradient_vector(model, ConFIG_update(grads))  # calculate the conflict-free direction and set the condlict-free direction to the network
+        apply_gradient_vector(model, ConFIG_update_double(grads[0], grads[1]))  # calculate the conflict-free direction and set the condlict-free direction to the network
     else:
         train_loss.backward()
 
@@ -249,6 +251,7 @@ def evaluate_model(args, data, problem):
 
         dict_agg(test_stats, 'test_time', np.array([test_time]))
         dict_agg(test_stats, 'test_proj', np.array([proj_num]))
+        dict_agg(test_stats, 'test_gap', optimality_gap.detach().cpu().numpy())
         dict_agg(test_stats, 'test_gap_mean', gap_mean.detach().cpu().numpy())
         dict_agg(test_stats, 'test_gap_worst', gap_worst.detach().cpu().numpy())
         dict_agg(test_stats, 'test_alpha', alpha.detach().cpu().numpy())
@@ -279,6 +282,10 @@ def calculate_scores(args, data):
     target_val = torch.load(
         './data/' + args.dataset + '/' + args.test_val_train + '/' + extension + 'target_' + args.test_val_train + '.pt')
 
+    # save the test optimality gap and alpha
+    np.save(f'./data/results_summary/{args.model_id}_test_gap.npy', test_stats['test_gap'])
+    np.save(f'./data/results_summary/{args.model_id}_test_alpha.npy', test_stats['test_alpha'])
+
     scores = {'max_obj_true': target_val.max().item(),
               'min_obj_true': target_val.min().item(),
               'test_optimality_gap_mean': np.mean(test_stats['test_gap_mean']),
@@ -292,7 +299,8 @@ def calculate_scores(args, data):
               'test_ineq_mean': np.mean(test_stats['test_ineq_mean']),
               'test_ineq_max': np.mean(test_stats['test_ineq_max']),
               'test_ineq_worst': np.max(test_stats['test_ineq_worst']),
-              'test_alpha': np.mean(test_stats['test_alpha']),
+              'test_alpha_mean': np.mean(test_stats['test_alpha']),
+              'test_alpha_worst': np.max(test_stats['test_alpha']),
               'train_time': np.sum(training_stats['train_time']),
               'val_time': np.mean(training_stats['val_time']),
               'test_time': np.mean(test_stats['test_time']),
@@ -309,6 +317,7 @@ def create_report(scores, args):
     args_scores_dict = args_dict | scores
     # save dict
     save_dict(args_scores_dict, args)
+    plot_distribution(args)
 
 
 def args_to_dict(args):
@@ -321,6 +330,23 @@ def save_dict(dictionary, args):
     for key, val in dictionary.items():
         # write every key and value to file
         w.writerow([key, val])
+
+
+def plot_distribution(args):
+    test_gap = np.load(f'./data/results_summary/{args.model_id}_test_gap.npy')
+    test_alpha = np.load(f'./data/results_summary/{args.model_id}_test_alpha.npy')
+
+    # Plot and save test_gap histogram
+    plt.figure()
+    plt.hist(test_gap, bins=100)
+    plt.xlabel('test gap')
+    plt.savefig(f'./data/results_summary/{args.model_id}_test_gap_hist.pdf', format='pdf')
+
+    # Plot and save test_alpha histogram
+    plt.figure()
+    plt.hist(test_alpha, bins=100)
+    plt.xlabel('test alpha')
+    plt.savefig(f'./data/results_summary/{args.model_id}_test_alpha_hist.pdf', format='pdf')
 
 
 def load_weights(model, model_id):
