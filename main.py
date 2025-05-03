@@ -1,114 +1,60 @@
-from train import run_training, plot_distribution
-from utils import load_data_new, load_problem_new
-from pretrain import data_sanity_check, run_proj_exp
+from train import run_training
+from utils import load_data, load_problem
 import argparse
 import os
 import torch
-import default_args
+import yaml
+import json
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 
 def add_arguments():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dataset", help="DCOPF, DCOPF_large, simpleDC3, noncvxQP")
-    parser.add_argument("--problem", help="primal_lp, dual_lp")
-    parser.add_argument("--model", help="primal_nn, dual_nn, vanilla_nn")
-    parser.add_argument("--model_id", type=str)
-
-    # dataset related parameters
-    # parser.add_argument("--truncate_idx", type=tuple)  # default="1,501", "2,40"
-    parser.add_argument("--primal_const_num", type=int)  # default=2143, 152
-    parser.add_argument("--primal_var_num", type=int)  # default=2313, 161
-    parser.add_argument("--primal_fx_idx", type=tuple)  # default=671, 49
-    parser.add_argument("--dual_const_num", type=int)  # default=671, 49
-    parser.add_argument("--dual_var_num", type=int)  # default=2143, 152
-    parser.add_argument("--dual_fx_idx", type=tuple)  # default=501, 40
-
-    # hidden layers related parameters
-    parser.add_argument("--primal_hidden_dim", type=int)
-    parser.add_argument("--primal_hidden_num", type=int)
-    parser.add_argument("--dual_hidden_dim", type=int)
-    parser.add_argument("--dual_hidden_num", type=int)
-    parser.add_argument("--proj_hidden_dim", type=int)
-    parser.add_argument("--proj_hidden_num", type=int)
-
-    # ALM and penalty related parameters
-    parser.add_argument("--penalty_g", type=float,
-                        help="penalty for slacks < 0, i.e., s >= 0")
-    parser.add_argument("--penalty_h", type=float,
-                        help="penalty for equality violation Ax - b")
-
-    # training related parameters
-    parser.add_argument("--ConFIG", default=False, type=bool)
-    parser.add_argument("--loss_type", type=str)
-    parser.add_argument("--optimizer", type=str)
-    parser.add_argument("--lr", help="learning rate", type=float)
-    parser.add_argument("--weight_decay", type=float)
-    parser.add_argument("--batch_size", type=int)
-    parser.add_argument("--epochs", type=int)
-    parser.add_argument("--data_generator", type=bool)
-    parser.add_argument("--self_supervised", type=bool)
-
-    # evaluation related parameters
-    parser.add_argument("--test_val_train", default="val", type=str)
+    parser.add_argument("--cfg_idx", help="config index", type=int, default=0)
+    parser.add_argument("--dataset", help="SSLdebug", default="SSLdebug")
+    parser.add_argument("--problem", help="primal_lp", default="primal_lp")
     parser.add_argument("--job", default="training", type=str)
 
-    # project related parameters
-    parser.add_argument("--max_iter", type=int)
-    parser.add_argument("--f_tol", type=float)
-    parser.add_argument("--eq_tol", type=float)  # not used, calculated using f_tol
-    parser.add_argument("--ineq_tol", type=float)  # not used, calculated using f_tol
-    parser.add_argument("--projection", type=str)
-    parser.add_argument("--rho", type=float)
-    parser.add_argument("--learn2proj", type=bool)
-    parser.add_argument("--proj_epochs", type=int)
-    parser.add_argument("--precondition", type=str)
-    # parser.add_argument("--periodic", type=bool)
-    parser.add_argument("--ldr_type", type=str)
-
     # save related parameters
-    parser.add_argument("--saveAllStats", default=True, type=bool)
-    parser.add_argument("--resultSaveFreq", default=50, type=int)
+    parser.add_argument("--resultSaveFreq", default=1000, type=int)
+    parser.add_argument("--resultPrintFreq", default=50, type=int)
     parser.add_argument("--float64", default=False, type=bool)
 
+    def str2bool(v):
+        if isinstance(v, bool):
+            return v
+        if v.lower() in ('yes', 'true', 't', 'y', '1'):
+            return True
+        elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+            return False
+        else:
+            raise argparse.ArgumentTypeError('Boolean value expected.')
+    parser.add_argument("--continue_training", default=False, type=str2bool)
     return parser.parse_args()
 
 
-def complete_args(args):
-    defaults = default_args.get_default_args(args.dataset)
-    for key in defaults.keys():
-        if eval('args.' + key) is None:
-            exec('args.' + key + ' = defaults[key]')
+def complete_args(cfg_file, problem_json, init_args):
+    init_args_dict = vars(init_args)
+    with open(cfg_file, "r") as f:
+        cfg = yaml.safe_load(f)
+    with open(problem_json, "r") as f:
+        problem_info = json.load(f)
 
-    if args.model == 'dual_learn2proj':
-        args.learn2proj = True
-    else:
-        args.learn2proj = False
-    #
-    # args.primal_input_dim = args.truncate_idx[1] - args.truncate_idx[0]
-    # args.primal_x_dim = args.primal_var_num
-    # args.dual_input_dim = args.truncate_idx[1] - args.truncate_idx[0]
-    # args.dual_y_dim = args.dual_var_num
+    args_dict = {**init_args_dict, **cfg, **problem_info}
+    args = argparse.Namespace(**args_dict)
 
+    # Override
     if args.epochs < args.resultSaveFreq:
         args.resultSaveFreq = args.epochs
+    args.model_id = f"{args.dataset}_cfg{args.cfg_idx}"
+    args.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    args.feature_dim = args.b_feature_num + args.A_feature_num
+    args.out_dim = args.var_num
 
-    # # def estimate_hidden_dim_and_num(input_dim):
-    # #     import math
-    # #     n0 = input_dim
-    # #     # let hidden_dim be about xxx * n0, round up to the nearest multiple of 8
-    # #     n = math.ceil(1.1*n0 / 8) * 8
-    # #     # (n/n0) ^ ( (L−1)n0 ) * n^n0 ---> 2^n0
-    # #     # ( (L−1)n0 ) * log2(n/n0) + n0 * log2(n) ---> n0
-    # #     # find hidden_num, L
-    # #     L = 1
-    # #     while True:
-    # #         if (L-1)*n0 * math.log2(n/n0) + n0 * math.log2(n) >= n0:
-    # #             break
-    # #         L += 1
-    # #     return n, L
-    print(args)
+    # Assert
+
+    return args
 
 
 def main(args):
@@ -120,6 +66,8 @@ def main(args):
         os.makedirs('./data/results_summary')
     if not os.path.exists('./logs'):
         os.makedirs('./logs')
+    if not os.path.exists('./logs/run_training'):
+        os.makedirs('./logs/run_training')
 
     if args.float64:
         torch.set_default_dtype(torch.float64)
@@ -127,29 +75,18 @@ def main(args):
         torch.set_default_dtype(torch.float32)
 
     if args.job == 'training':
-        problem = load_problem_new(args)
-        data = load_data_new(args, problem)
-        # run training
+        problem = load_problem(args)
+        data = load_data(args)
         run_training(args, data, problem)
-    # elif args.job == 'rho_search':
-    #     rho_search(args)
-    # elif args.job == 'baseline_pocs':
-    #     baseline_pocs(args)
-    elif args.job == 'run_proj_exp':
-        run_proj_exp(args)
-    elif args.job == 'data_sanity_check':
-        print('data_sanity_check disabled')
-        data_sanity_check(args)
-    elif args.job == 'plot_distribution':
-        plot_distribution(args)
     else:
         raise ValueError('Invalid job type')
-        # data = load_data(args)
-        # # evaluate model
-        # evaluate_model(data, args)
 
 
 if __name__ == '__main__':
-    args = add_arguments()
-    complete_args(args)
+    init_args = add_arguments()
+    cfg_file = f"./cfg/{init_args.dataset}_{init_args.cfg_idx}"
+    problem_json = f"./data/{init_args.dataset}/problem_info.json"
+    args = complete_args(cfg_file, problem_json, init_args)
+    for key, value in vars(args).items():
+        print(f"{key}: {value}")
     main(args)
