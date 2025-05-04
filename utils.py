@@ -32,12 +32,12 @@ def load_model(args):
                      act_cls=act_cls_mapping[args.act_cls],
                      batch_norm=args.batch_norm)
 
-    return mlp
+    return mlp.to(args.device)
 
 
 def load_algo(args):
     nonnegative_mask = torch.load(f'./data/{args.dataset}/nonnegative_mask.pt')
-    A = torch.load(f'./data/{args.dataset}/A_sparse.pt')
+    A = torch.load(f'./data/{args.dataset}/A_backbone.pt')
 
     if args.algo == 'LDRPM':
         ldr_weight = torch.load(f'./data/{args.dataset}/ldr_weight.pt')
@@ -52,14 +52,18 @@ def load_algo(args):
         algo = models.POCS(nonnegative_mask=nonnegative_mask,
                            eq_weight=eq_weight, eq_bias_transform=eq_bias_transform)
 
+    elif args.algo == 'DC3':
+        algo = models.DC3(A=A, nonnegative_mask=nonnegative_mask, lr=args.dc3_lr, momentum=args.dc3_momentum)
+
     else:
         raise ValueError(f"Invalid algorithm: {args.algo}")
 
-    return models.FeasibilityNet(algo=algo, eq_tol=args.eq_tol, ineq_tol=args.ineq_tol, max_iters=args.max_iters)
+    return models.FeasibilityNet(algo=algo,
+                                 eq_tol=args.eq_tol, ineq_tol=args.ineq_tol, max_iters=args.max_iters).to(args.device)
 
 
 def compute_eq_projector(A):
-    assert A.is_sparse
+    A = A.to_sparse if not A.is_sparse else A
     with torch.no_grad():
         PD = torch.sparse.mm(A, A.t())
         chunk = torch.sparse.mm(A.t(), torch.inverse(PD.to_dense()))

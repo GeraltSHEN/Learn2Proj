@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import numpy as np
 
 
 class MLP(nn.Module):
@@ -29,6 +30,61 @@ class MLP(nn.Module):
         return x
 
 
+class DC3(nn.Module):
+    def __init__(self, A, nonnegative_mask, lr, momentum):
+        super(DC3, self).__init__()
+        self.name = 'DC3'
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.lr = lr
+        self.momentum = momentum
+        self.old_x_step = 0
+
+        _A = A.to_dense()
+        self.constr_num = _A.shape[0]
+        self.var_num = _A.shape[1]
+        det = 0
+        i = 0
+        while abs(det) < 0.0001 and i < 100:
+            self._partial_vars = np.random.choice(self.var_num, self.var_num - self.constr_num, replace=False)
+            self._other_vars = np.setdiff1d(np.arange(self.var_num), self._partial_vars)
+            det = torch.det(_A[:, self._other_vars])
+            i += 1
+        if i == 100:
+            raise Exception
+        else:
+            self._A_partial = _A[:, self._partial_vars].requires_grad_(False)
+            self._A_other_inv = torch.inverse(_A[:, self._other_vars]).requires_grad_(False)
+
+        self.nonnegative_mask = nonnegative_mask
+        self.G = torch.diag(nonnegative_mask)
+        self.h = torch.zeros(nonnegative_mask.sum())
+
+    def ineq_partial_grad(self, x, b):
+        G_effective = self.G[:, self.partial_vars] - self.G[:, self.other_vars] @ (self._A_other_inv @ self._A_partial)
+        h_effective = self.h - (b @ self._A_other_inv.T) @ self.G[:, self.other_vars].T
+        grad = 2 * torch.clamp(x[:, self.partial_vars] @ G_effective.T - h_effective, 0) @ G_effective
+        x = torch.zeros(b.shape[0], self.var_num, device=self.device)
+        x[:, self.partial_vars] = grad
+        x[:, self.other_vars] = - (grad @ self._A_partial.T) @ self._A_other_inv.T
+        return x
+
+    def reset_old_x_step(self):
+        self.old_x_step = 0
+
+    def complete(self, x, b):
+        complete_x = torch.zeros(b.shape[0], self.var_num, device=self.device)
+        complete_x[:, self.partial_vars] = x
+        complete_x[:, self.other_vars] = (b - x @ self._A_partial.T) @ self._A_other_inv.T
+        return complete_x
+
+    def forward(self, x, b):
+        x_step = self.ineq_partial_grad(x, b)
+        new_x_step = self.lr * x_step + self.momentum * self.old_x_step
+        x = x - new_x_step
+        self.old_x_step = new_x_step
+        return x
+
+
 class Projector(nn.Module):
     def __init__(self, weight, bias=None, bias_transform=None):
         super(Projector, self).__init__()
@@ -53,6 +109,7 @@ class Projector(nn.Module):
 class POCS(nn.Module):
     def __init__(self, nonnegative_mask, eq_weight, eq_bias_transform):
         super(POCS, self).__init__()
+        self.name = 'POCS'
         self.nonnegative_mask = nonnegative_mask
         self.eq_projector = Projector(weight=eq_weight, bias_transform=eq_bias_transform)
 
@@ -65,6 +122,7 @@ class POCS(nn.Module):
 class LDRPM(nn.Module):
     def __init__(self, nonnegative_mask, eq_weight, eq_bias_transform, ldr_weight, ldr_bias):
         super(LDRPM, self).__init__()
+        self.name = 'LDRPM'
         self.nonnegative_mask = nonnegative_mask
         self.eq_projector = Projector(weight=eq_weight, bias_transform=eq_bias_transform)
         self.ldr_projector = Projector(weight=ldr_weight, bias=ldr_bias)
@@ -84,10 +142,10 @@ class LDRPM(nn.Module):
         return x_star
 
 
-class FeasibilityNet:
+class FeasibilityNet(nn.Module):
     def __init__(self, algo, eq_tol, ineq_tol, max_iters, **kwargs):
         super(FeasibilityNet, self).__init__()
-
+        self.algo_name = algo.name
         self.algo = algo
         self.eq_tol = eq_tol
         self.ineq_tol = ineq_tol
@@ -97,7 +155,15 @@ class FeasibilityNet:
         self.ineq_epsilon = None
         self.iters = 0
 
-    def __call__(self, x, A_transpose, b, nonnegative_mask):
+    def forward(self, x, A_transpose, b, nonnegative_mask, features):
+        if self.algo_name == 'DC3':
+            self.algo.reset_old_x_step()
+        elif self.algo_name == 'POCS':
+            self.algo.eq_projector.update_bias(b)
+        elif self.algo_name == 'LDRPM':
+            self.algo.eq_projector.update_bias(b)
+            self.algo.update_ldr_ref(features)
+
         self.iters = 0
 
         self.eq_epsilon, self.ineq_epsilon = self.stopping_criterion(x, A_transpose, b, nonnegative_mask)

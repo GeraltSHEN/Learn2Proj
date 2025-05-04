@@ -50,7 +50,10 @@ def complete_args(cfg_file, problem_json, init_args):
     args.model_id = f"{args.dataset}_cfg{args.cfg_idx}"
     args.device = 'cuda' if torch.cuda.is_available() else 'cpu'
     args.feature_dim = args.b_feature_num + args.A_feature_num
-    args.out_dim = args.var_num
+    if args.model == 'mlp':
+        args.out_dim = args.var_num
+    elif args.model == 'dc3':
+        args.out_dim = args.constr_num
 
     # Assert
 

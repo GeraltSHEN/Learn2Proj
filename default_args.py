@@ -5,7 +5,7 @@ def get_default_args(dataset):
     defaults = {}
 
     if dataset == 'SSLdebug':
-        # defaults["model"] = "mlp"
+        defaults["model"] = "mlp"
         # dataset related parameters
         defaults["data_generator"] = True
         defaults["renew_freq"] = 88

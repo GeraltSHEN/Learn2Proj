@@ -42,7 +42,7 @@ def run_training(args, data, problem):
     print(f'----time required for {args.epochs} epochs training: {round(training_time / 60)}min----')
     print(f'----time required for {args.epochs} epochs training: {round(training_time / 3600)}hr----')
     # check the model on the test set
-    scores = evaluate_model(args, data, problem)
+    scores = evaluate_model(args, data, problem, model, feasibility_net)
 
 
 def train_model(optimizer, model, feasibility_net, args, data, problem, epoch_stats):
@@ -181,12 +181,12 @@ def dict_agg(stats, key, value):
         stats[key] = value
 
 
-def evaluate_model(args, data, problem):
+def evaluate_model(args, data, problem, model, feasibility_net):
     test_stats = {}
     test_gaps = []
-    model = load_model(args)
-    model = load_weights(model, args)
-    feasibility_net = load_algo(args)
+    # model = load_model(args)
+    # model = load_weights(model, args)
+    # feasibility_net = load_algo(args)
     model.eval()
     for i, batch in enumerate(data['test']):
         start_time = time.time()
