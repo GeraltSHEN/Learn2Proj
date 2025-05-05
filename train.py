@@ -83,10 +83,10 @@ def Learning(args, data, problem, model, feasibility_net, optimizer):
                                                epoch_stats['train_time']))
             print('Val Gap: {:.5f}, '
                   'Val Gap Worst: {: .5f}, '
-                  'Val Iters: {:d}, '
+                  'Val Iters: {: d}, '
                   'Val Time: {: .5f}'.format(curr_gap,
                                              epoch_stats['val_gap_worst'],
-                                             epoch_stats['val_iters'] / epoch_stats['val_agg'],
+                                             int(epoch_stats['val_iters'] // epoch_stats['val_agg']),
                                              epoch_stats['val_time'] / epoch_stats['val_agg']))
 
             print('Equality Violation: {:.5f}, '
@@ -106,11 +106,11 @@ def Learning(args, data, problem, model, feasibility_net, optimizer):
 
 def featurize_batch(args, batch):
     with torch.no_grad():
-        batch, A_sp = batch.to(args.device)
-        bsz = batch.target.shape[0]
+        bsz = batch.feature.shape[0]
         A_sp = torch.sparse_coo_tensor(indices=batch.A_indices,
                                         values=batch.A_values,
-                                        size=(bsz * batch.constr_num, bsz * batch.var_num))
+                                        size=(bsz * args.constr_num, bsz * args.var_num)).to(args.device)
+        batch = batch.to(args.device)
         return batch, A_sp
 
 
@@ -130,8 +130,8 @@ def get_loss(model, feasibility_net, batch, problem, args, loss_type):
     batch, A_sp = featurize_batch(args, batch)
 
     if args.problem == 'primal_lp':
-        x = model(batch.feaure)
-        x = feasibility_net(x=x, A=A_sp, b=batch.b, nonnegative_mask=problem.nonnegative_mask)
+        x = model(batch.feature)
+        x = feasibility_net(x=x, A=A_sp, b=batch.b, nonnegative_mask=problem.nonnegative_mask, feature=batch.feature)
 
     else:
         raise ValueError('Invalid problem')
@@ -139,9 +139,9 @@ def get_loss(model, feasibility_net, batch, problem, args, loss_type):
     predicted_obj = - problem.obj_fn(x=x)
 
     if loss_type == 'obj':
-        return predicted_obj
+        return predicted_obj.mean()
     elif loss_type == 'gap':
-        return problem.optimality_gap(predicted_obj, batch.target)
+        return problem.optimality_gap(predicted_obj, batch.target).mean()
     else:
         raise ValueError('Invalid loss_type')
 
@@ -241,8 +241,8 @@ def calculate_scores(args, data):
               'test_eq_violation_worst': test_stats['test_eq_worst'],
               'test_ineq_violation_mean': test_stats['test_ineq'] / test_stats['test_agg'],
               'test_ineq_violation_worst': test_stats['test_ineq_worst'],
-              'test_iters_mean': test_stats['test_iters'] / test_stats['test_agg'],
-              'test_iters_worst': test_stats['test_iters_worst'],
+              'test_iters_mean': int(test_stats['test_iters'] // test_stats['test_agg']),
+              'test_iters_worst': int(test_stats['test_iters_worst']),
               'train_time': training_stats['train_time'],
               'val_time': training_stats['val_time'] / training_stats['val_agg'],
               'test_time': test_stats['test_time'] / test_stats['test_agg'],}

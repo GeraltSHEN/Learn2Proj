@@ -19,7 +19,7 @@ def add_arguments():
     # save related parameters
     parser.add_argument("--resultSaveFreq", default=1000, type=int)
     parser.add_argument("--resultPrintFreq", default=50, type=int)
-    parser.add_argument("--float64", default=False, type=bool)
+    parser.add_argument("--float64", default=True, type=bool)
 
     def str2bool(v):
         if isinstance(v, bool):
@@ -49,7 +49,7 @@ def complete_args(cfg_file, problem_json, init_args):
         args.resultSaveFreq = args.epochs
     args.model_id = f"{args.dataset}_cfg{args.cfg_idx}"
     args.device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    args.feature_dim = args.b_feature_num + args.A_feature_num
+    args.feature_dim = args.feature_num
     if args.model == 'mlp':
         args.out_dim = args.var_num
     elif args.model == 'dc3':
@@ -88,8 +88,8 @@ def main(args):
 if __name__ == '__main__':
     init_args = add_arguments()
     cfg_file = f"./cfg/{init_args.dataset}_{init_args.cfg_idx}"
-    problem_json = f"./data/{init_args.dataset}/problem_info.json"
-    args = complete_args(cfg_file, problem_json, init_args)
+    metadata_json = f"./data/{init_args.dataset}/metadata.json"
+    args = complete_args(cfg_file, metadata_json, init_args)
     for key, value in vars(args).items():
         print(f"{key}: {value}")
     main(args)

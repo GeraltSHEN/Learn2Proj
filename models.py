@@ -212,7 +212,7 @@ class FeasibilityNet(nn.Module):
         self.ineq_epsilon = None
         self.iters = 0
 
-    def forward(self, x, A, b, nonnegative_mask, features):
+    def forward(self, x, A, b, nonnegative_mask, feature):
         if self.algo_name == 'DC3':
             if self.changing_feature == 'A':
                 self.algo.update_A_inv(A)
@@ -226,9 +226,25 @@ class FeasibilityNet(nn.Module):
             if self.changing_feature == 'A':
                 self.algo.eq_projector.update_weight_and_bias_transform(A)
             self.algo.eq_projector.update_bias(b)
-            self.algo.update_ldr_ref(features)
+            self.algo.update_ldr_ref(feature)
 
         self.iters = 0
+
+        # x_eq = self.algo.eq_projector(x)
+        # s = self.algo.x_LDR - x_eq
+        # alphas = - x_eq / (s + 1e-8)
+        # mask = (x_eq < 0) * self.algo.nonnegative_mask
+        # alpha = torch.max(alphas * mask, dim=-1).values
+        # x_star = self.algo.x_LDR * alpha.unsqueeze(-1) + x_eq * (1 - alpha).unsqueeze(-1)
+        #
+        # def ff(x):
+        #     eq_residual = (A @ x.flatten() - b.flatten()).view(-1, b.shape[-1])
+        #     ineq_residual = torch.relu(-x[:, nonnegative_mask])
+        #     eq_violation = torch.norm(eq_residual, p=2, dim=-1)
+        #     ineq_violation = torch.norm(ineq_residual, p=2, dim=-1)
+        #     return eq_violation, ineq_violation
+        #
+        # print("debug")
 
         self.eq_epsilon, self.ineq_epsilon = self.stopping_criterion(x, A, b, nonnegative_mask)
         while ((self.eq_epsilon.mean() > self.eq_tol or self.ineq_epsilon.mean() > self.ineq_tol)
@@ -236,18 +252,23 @@ class FeasibilityNet(nn.Module):
 
             if self.algo_name == 'DC3':
                 x = self.algo(x, b)
-
-
-            x = self.algo(x)
+            elif self.algo_name == 'OPTNET':
+                x = self.algo(x, b, A)
+            elif self.algo_name == 'POCS':
+                x = self.algo(x)
+            elif self.algo_name == 'LDRPM':
+                x = self.algo(x)
             self.iters += 1
+            self.eq_epsilon, self.ineq_epsilon = self.stopping_criterion(x, A, b, nonnegative_mask)
 
         return x
 
     @staticmethod
     def stopping_criterion(x, A, b, nonnegative_mask):
         with torch.no_grad():
-            eq_residual = x @ A.t() - b
-            ineq_residual = torch.relu(-x[nonnegative_mask])
+            # eq_residual = x @ A.t() - b
+            eq_residual = (A @ x.flatten() - b.flatten()).view(-1, b.shape[-1])
+            ineq_residual = torch.relu(-x[:, nonnegative_mask])
 
             eq_violation = torch.norm(eq_residual, p=2, dim=-1)
             ineq_violation = torch.norm(ineq_residual, p=2, dim=-1)

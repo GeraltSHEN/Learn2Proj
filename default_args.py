@@ -6,6 +6,10 @@ def get_default_args(dataset):
 
     if dataset == 'SSLdebug':
         defaults["model"] = "mlp"
+        defaults["algo"] = "LDRPM"
+        defaults["eq_tol"] = 1e-5
+        defaults["ineq_tol"] = 1e-5
+        defaults["max_iters"] = 300
         # dataset related parameters
         defaults["data_generator"] = True
         defaults["renew_freq"] = 88

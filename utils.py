@@ -13,8 +13,9 @@ import os
 
 def load_problem(args):
     if args.problem == "primal_lp":
-        c = torch.load(f'./data/{args.dataset}/c_backbone.pt')
+        c = torch.load(f'./data/{args.dataset}/c_backbone.pt').to(args.device)
         nonnegative_mask = torch.load(f'./data/{args.dataset}/nonnegative_mask.pt')
+        nonnegative_mask = torch.from_numpy(nonnegative_mask).to(args.device)  #todo: remove in the future
         problem = PrimalLP(c=c, nonnegative_mask=nonnegative_mask)
     else:
         raise ValueError('Invalid problem')
@@ -37,33 +38,41 @@ def load_model(args):
 
 def load_algo(args):
     nonnegative_mask = torch.load(f'./data/{args.dataset}/nonnegative_mask.pt')
-    A = torch.load(f'./data/{args.dataset}/A_backbone.pt')
+    nonnegative_mask = torch.from_numpy(nonnegative_mask).to(args.device)  # todo: remove in the future
+
+    b_backbone = torch.load(f'./data/{args.dataset}/b_backbone.pt')
+    A_backbone = torch.load(f'./data/{args.dataset}/A_backbone.pt')
 
     if args.algo == 'LDRPM':
         ldr_weight = torch.load(f'./data/{args.dataset}/ldr_weight.pt')
         ldr_bias = torch.load(f'./data/{args.dataset}/ldr_bias.pt')
-        eq_weight, eq_bias_transform = compute_eq_projector(A)
+        eq_weight, eq_bias_transform = compute_eq_projector(A_backbone)
         algo = models.LDRPM(nonnegative_mask=nonnegative_mask,
                             eq_weight=eq_weight, eq_bias_transform=eq_bias_transform,
                             ldr_weight=ldr_weight, ldr_bias=ldr_bias)
 
     elif args.algo == 'POCS':
-        eq_weight, eq_bias_transform = compute_eq_projector(A)
+        eq_weight, eq_bias_transform = compute_eq_projector(A_backbone)
         algo = models.POCS(nonnegative_mask=nonnegative_mask,
                            eq_weight=eq_weight, eq_bias_transform=eq_bias_transform)
 
     elif args.algo == 'DC3':
-        algo = models.DC3(A=A, nonnegative_mask=nonnegative_mask, lr=args.dc3_lr, momentum=args.dc3_momentum)
+        algo = models.DC3(A=A_backbone, nonnegative_mask=nonnegative_mask, lr=args.dc3_lr, momentum=args.dc3_momentum)
+
+    elif args.algo == 'OPTNET':
+        algo = models.OPTNET(nonnegative_mask=nonnegative_mask,
+                             constr_num=args.constr_num, var_num=args.var_num)
 
     else:
         raise ValueError(f"Invalid algorithm: {args.algo}")
 
     return models.FeasibilityNet(algo=algo,
-                                 eq_tol=args.eq_tol, ineq_tol=args.ineq_tol, max_iters=args.max_iters).to(args.device)
+                                 eq_tol=args.eq_tol, ineq_tol=args.ineq_tol, max_iters=args.max_iters,
+                                 changing_feature=args.changing_feature).to(args.device)
 
 
 def compute_eq_projector(A):
-    A = A.to_sparse if not A.is_sparse else A
+    A = A.to_sparse() if not A.is_sparse else A
     with torch.no_grad():
         PD = torch.sparse.mm(A, A.t())
         chunk = torch.sparse.mm(A.t(), torch.inverse(PD.to_dense()))
@@ -72,18 +81,30 @@ def compute_eq_projector(A):
     return eq_weight, eq_bias_transform
 
 
-def load_instances(args, train_val_test):
-    As_indices = torch.load(f'./data/{args.dataset}/As_indices.pt')
-    As_values = torch.load(f'./data/{args.dataset}/As_values.pt')
-    bs = torch.load(f'./data/{args.dataset}/bs.pt')
-
+def load_instances(args, b_scale, A_scale, b_backbone, A_backbone, train_val_test):
     features = torch.load(f'./data/{args.dataset}/{train_val_test}/features.pt')
+    features = torch.cat([torch.ones((len(features), 1)), features], dim=1)  # add bias term
     targets = torch.load(f'./data/{args.dataset}/{train_val_test}/targets.pt')
 
     dataset = []
     for i in range(len(features)):
-        dataset.append(BasicData(feature=features[i], target=targets[i],
-                                 b=bs[i], A_indices=As_indices[i], A_values=As_values[i],
+        feature = features[i]
+        target = targets[i]
+        if args.changing_feature == 'b':
+            b = b_scale @ feature
+            A = A_backbone.clone().detach()
+        elif args.changing_feature == 'A':
+            b = b_backbone.clone().detach()
+            broadcast = torch.cat([f * torch.eye(args.var_num) for f in feature], dim=0)
+            A = torch.sparse.mm(A_scale, broadcast)
+        else:
+            raise ValueError('Invalid changing_feature')
+
+        A_sparse = A.to_sparse() if not A.is_sparse else A
+        A_indices = A_sparse.indices()
+        A_values = A_sparse.values()
+        dataset.append(BasicData(feature=feature[1:], target=target,
+                                 b=b, A_indices=A_indices, A_values=A_values,
                                  constr_num=args.constr_num, var_num=args.var_num))
 
     if train_val_test == 'train':
@@ -101,25 +122,34 @@ def load_instances(args, train_val_test):
 
 
 def load_data(args):
+    b_backbone = torch.load(f'./data/{args.dataset}/b_backbone.pt')
+    A_backbone = torch.load(f'./data/{args.dataset}/A_backbone.pt')
+
+    if args.changing_feature == 'b':
+        b_scale = torch.load(f'./data/{args.dataset}/b_scale.pt')
+        A_scale = None
+        b_backbone = None
+        A_backbone = torch.load(f'./data/{args.dataset}/A_backbone.pt')
+    elif args.changing_feature == 'A':
+        b_scale = None
+        A_scale = torch.load(f'./data/{args.dataset}/A_scale.pt')
+        b_backbone = torch.load(f'./data/{args.dataset}/b_backbone.pt')
+        A_backbone = None
+    else:
+        raise ValueError('Invalid changing_feature')
+
     if args.job in ['training']:
         if args.data_generator:
-            b_feature_lb = torch.load(f'./data/{args.dataset}/b_feature_lb.pt')
-            b_feature_ub = torch.load(f'./data/{args.dataset}/b_feature_ub.pt')
-            A_feature_lb = torch.load(f'./data/{args.dataset}/A_feature_lb.pt')
-            A_feature_ub = torch.load(f'./data/{args.dataset}/A_feature_ub.pt')
-            b_backbone = torch.load(f'./data/{args.dataset}/b_backbone.pt')
-            A_backbone = torch.load(f'./data/{args.dataset}/A_backbone.pt')
-            b_feature_mask = torch.load(f'./data/{args.dataset}/b_feature_mask.pt')
-            A_feature_mask = torch.load(f'./data/{args.dataset}/A_feature_mask.pt')
-
             train = InstanceGenerator(args,
-                                      (b_feature_lb, b_feature_ub), (A_feature_lb, A_feature_ub),
-                                      b_backbone, A_backbone,
-                                      b_feature_mask, A_feature_mask)
+                                      b_scale, A_scale,
+                                      b_backbone, A_backbone)
         else:
-            train = load_instances(args, 'train')
-        val = load_instances(args, 'val')
-        test = load_instances(args, 'test')
+            train = load_instances(args, b_scale, A_scale,
+                                      b_backbone, A_backbone, 'train')
+        val = load_instances(args, b_scale, A_scale,
+                                      b_backbone, A_backbone, 'val')
+        test = load_instances(args, b_scale, A_scale,
+                                      b_backbone, A_backbone, 'test')
         data = {'train': train, 'val': val, 'test': test}
         return data
 
@@ -142,17 +172,20 @@ class BasicData(Data):
 
 class InstanceGenerator:
     def __init__(self, args,
-                 b_feature_range, A_feature_range,
-                 b_backbone, A_backbone,
-                 b_feature_mask, A_feature_mask):
+                 b_scale, A_scale,
+                 b_backbone, A_backbone):
         self.bsz_factor = args.bsz_factor
         self.batch_size = args.batch_size
-        self.b_feature_lb, self.b_feature_ub = b_feature_range
-        self.A_feature_lb, self.A_feature_ub = A_feature_range
-        self.b_feature_mask = b_feature_mask
-        self.A_feature_mask = A_feature_mask
+        self.feature_lb = torch.ones(1+args.feature_num)
+        self.feature_ub = torch.cat([torch.ones(1), - torch.ones(args.feature_num)])
+        self.b_scale = b_scale
+        self.A_scale = A_scale
         self.b_backbone = b_backbone
         self.A_backbone = A_backbone
+
+        self.constr_num = args.constr_num
+        self.var_num = args.var_num
+        self.changing_feature = args.changing_feature
 
         self.data_structure = BasicData()
 
@@ -164,24 +197,27 @@ class InstanceGenerator:
         train_dataset = []
 
         for _ in range(num_instances):
-            b_feature = torch.rand_like(self.b_feature_lb) * (self.b_feature_ub - self.b_feature_lb) + self.b_feature_lb
-            A_feature = torch.rand_like(self.A_feature_lb) * (self.A_feature_ub - self.A_feature_lb) + self.A_feature_lb
+            feature = torch.rand_like(self.feature_lb) * (self.feature_ub - self.feature_lb) + self.feature_lb
 
-            b = self.b_backbone.clone().detach()
-            A = self.A_backbone.clone().detach()
+            if self.changing_feature == 'b':
+                b = self.b_scale @ feature
+                A = self.A_backbone.clone().detach()
+            elif self.changing_feature == 'A':
+                b = self.b_backbone.clone().detach()
+                broadcast = torch.cat([f * torch.eye(self.var_num) for f in feature], dim=0)
+                A = torch.sparse.mm(self.A_scale, broadcast)
+            else:
+                raise ValueError('Invalid changing_feature')
 
-            feature = torch.cat([b_feature, A_feature], dim=0)
             target = torch.zeros(1)
-            b[self.b_feature_mask] = b_feature
-            A[self.A_feature_mask] = A_feature
 
-            A_sparse = A.to_sparse()
+            A_sparse = A.to_sparse() if not A.is_sparse else A
             A_indices = A_sparse.indices()
             A_values = A_sparse.values()
-            train_dataset.append(BasicData(feature=feature, target=target,
+            train_dataset.append(BasicData(feature=feature[1:], target=target,
                                            b=b, A_indices=A_indices, A_values=A_values,
-                                           constr_num=self.A_backbone.shape[0],
-                                           var_num=self.A_backbone.shape[1]))
+                                           constr_num=self.constr_num,
+                                           var_num=self.var_num))
 
         return DataLoader(train_dataset, batch_size=self.batch_size, shuffle=True,
                           exclude_keys=['constr_num', 'var_num'])
