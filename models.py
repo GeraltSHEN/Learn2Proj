@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
+import cvxpy as cp
+from cvxpylayers.torch import CvxpyLayer
 
 
 class MLP(nn.Module):
@@ -59,6 +61,30 @@ class DC3(nn.Module):
         self.G = torch.diag(nonnegative_mask)
         self.h = torch.zeros(nonnegative_mask.sum())
 
+    def reset_old_x_step(self):
+        self.old_x_step = 0
+
+    def update_A_inv(self, A):
+        _A = A.to_dense()
+        det = 0
+        i = 0
+        while abs(det) < 0.0001 and i < 100:
+            self._partial_vars = np.random.choice(self.var_num, self.var_num - self.constr_num, replace=False)
+            self._other_vars = np.setdiff1d(np.arange(self.var_num), self._partial_vars)
+            det = torch.det(_A[:, self._other_vars])
+            i += 1
+        if i == 100:
+            raise Exception
+        else:
+            self._A_partial = _A[:, self._partial_vars].requires_grad_(False)
+            self._A_other_inv = torch.inverse(_A[:, self._other_vars]).requires_grad_(False)
+
+    def complete(self, x, b):
+        complete_x = torch.zeros(b.shape[0], self.var_num, device=self.device)
+        complete_x[:, self.partial_vars] = x
+        complete_x[:, self.other_vars] = (b - x @ self._A_partial.T) @ self._A_other_inv.T
+        return complete_x
+
     def ineq_partial_grad(self, x, b):
         G_effective = self.G[:, self.partial_vars] - self.G[:, self.other_vars] @ (self._A_other_inv @ self._A_partial)
         h_effective = self.h - (b @ self._A_other_inv.T) @ self.G[:, self.other_vars].T
@@ -68,21 +94,43 @@ class DC3(nn.Module):
         x[:, self.other_vars] = - (grad @ self._A_partial.T) @ self._A_other_inv.T
         return x
 
-    def reset_old_x_step(self):
-        self.old_x_step = 0
-
-    def complete(self, x, b):
-        complete_x = torch.zeros(b.shape[0], self.var_num, device=self.device)
-        complete_x[:, self.partial_vars] = x
-        complete_x[:, self.other_vars] = (b - x @ self._A_partial.T) @ self._A_other_inv.T
-        return complete_x
-
     def forward(self, x, b):
         x_step = self.ineq_partial_grad(x, b)
         new_x_step = self.lr * x_step + self.momentum * self.old_x_step
         x = x - new_x_step
         self.old_x_step = new_x_step
         return x
+
+
+class OPTNET(nn.Module):
+    def __init__(self, nonnegative_mask, constr_num, var_num):
+        super().__init__()
+        self.name = 'OPTNET'
+        self.nonnegative_mask = nonnegative_mask
+        self.G = torch.diag(nonnegative_mask)
+        self.h = torch.zeros(nonnegative_mask.sum())
+
+        x = cp.Variable(var_num)
+        x0 = cp.Parameter(var_num)
+        A = cp.Parameter((constr_num, var_num))
+        b = cp.Parameter(constr_num)
+
+        constraints = [A @ x == b, self.G @ x <= self.h]
+        objective = cp.Minimize(cp.sum_squares(x - x0))
+        problem = cp.Problem(objective, constraints)
+        self.proj_layer = CvxpyLayer(problem, variables=[x],
+                                     parameters=[x0, b, A])
+
+    def forward(self, x, b, A):
+        bsz = x.shape[0]
+        xs = []
+        for i in range(bsz):
+            x0 = x[i]
+            b_i = b[i]
+            A_i = A[i]
+            x_proj = self.proj_layer(x0, b_i, A_i)[0]
+            xs.append(x_proj)
+        return torch.stack(xs)
 
 
 class Projector(nn.Module):
@@ -104,6 +152,14 @@ class Projector(nn.Module):
     def update_bias(self, b):
         with torch.no_grad():
             self.bias = b @ self.bias_transform
+
+    def update_weight_and_bias_transform(self, A):
+        A = A.to_sparse if not A.is_sparse else A
+        with torch.no_grad():
+            PD = torch.sparse.mm(A, A.t())
+            chunk = torch.sparse.mm(A.t(), torch.inverse(PD.to_dense()))
+            self.weight = (torch.eye(A.shape[-1]) - torch.sparse.mm(chunk, A)).t().requires_grad_(False)
+            self.bias_transform = chunk.t().requires_grad_(False)
 
 
 class POCS(nn.Module):
@@ -143,41 +199,54 @@ class LDRPM(nn.Module):
 
 
 class FeasibilityNet(nn.Module):
-    def __init__(self, algo, eq_tol, ineq_tol, max_iters, **kwargs):
+    def __init__(self, algo, eq_tol, ineq_tol, max_iters, changing_feature):
         super(FeasibilityNet, self).__init__()
         self.algo_name = algo.name
         self.algo = algo
         self.eq_tol = eq_tol
         self.ineq_tol = ineq_tol
         self.max_iters = max_iters
+        self.changing_feature = changing_feature
 
         self.eq_epsilon = None
         self.ineq_epsilon = None
         self.iters = 0
 
-    def forward(self, x, A_transpose, b, nonnegative_mask, features):
+    def forward(self, x, A, b, nonnegative_mask, features):
         if self.algo_name == 'DC3':
+            if self.changing_feature == 'A':
+                self.algo.update_A_inv(A)
             self.algo.reset_old_x_step()
+            x = self.algo.complete(x, b)  # complete
         elif self.algo_name == 'POCS':
+            if self.changing_feature == 'A':
+                self.algo.eq_projector.update_weight_and_bias_transform(A)
             self.algo.eq_projector.update_bias(b)
         elif self.algo_name == 'LDRPM':
+            if self.changing_feature == 'A':
+                self.algo.eq_projector.update_weight_and_bias_transform(A)
             self.algo.eq_projector.update_bias(b)
             self.algo.update_ldr_ref(features)
 
         self.iters = 0
 
-        self.eq_epsilon, self.ineq_epsilon = self.stopping_criterion(x, A_transpose, b, nonnegative_mask)
+        self.eq_epsilon, self.ineq_epsilon = self.stopping_criterion(x, A, b, nonnegative_mask)
         while ((self.eq_epsilon.mean() > self.eq_tol or self.ineq_epsilon.mean() > self.ineq_tol)
                and self.iters < self.max_iters):
+
+            if self.algo_name == 'DC3':
+                x = self.algo(x, b)
+
+
             x = self.algo(x)
             self.iters += 1
 
         return x
 
     @staticmethod
-    def stopping_criterion(x, A_transpose, b, nonnegative_mask):
+    def stopping_criterion(x, A, b, nonnegative_mask):
         with torch.no_grad():
-            eq_residual = x @ A_transpose - b
+            eq_residual = x @ A.t() - b
             ineq_residual = torch.relu(-x[nonnegative_mask])
 
             eq_violation = torch.norm(eq_residual, p=2, dim=-1)
@@ -186,18 +255,6 @@ class FeasibilityNet(nn.Module):
             eq_epsilon = eq_violation / (1 + torch.norm(b, p=2, dim=-1))  # scaled by the norm of b
             ineq_epsilon = ineq_violation  # no scaling because rhs is 0
             return eq_epsilon, ineq_epsilon
-
-
-# class CombinedModel(nn.Module):
-#     def __init__(self, optimality_net, feasibility_net):
-#         super().__init__()
-#         self.optimality_net = optimality_net
-#         self.feasibility_net = feasibility_net
-#
-#     def forward(self, features):
-#         x = self.optimality_net(features)
-#         x = self.feasibility_net(x)
-#         return x
 
 
 

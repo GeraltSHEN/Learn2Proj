@@ -131,7 +131,7 @@ def get_loss(model, feasibility_net, batch, problem, args, loss_type):
 
     if args.problem == 'primal_lp':
         x = model(batch.feaure)
-        x = feasibility_net(x=x, A_transpose=A_sp.t(), b=batch.b, nonnegative_mask=problem.nonnegative_mask)
+        x = feasibility_net(x=x, A=A_sp, b=batch.b, nonnegative_mask=problem.nonnegative_mask)
 
     else:
         raise ValueError('Invalid problem')
