@@ -53,7 +53,7 @@ def load_algo(args):
 
     elif args.algo == 'POCS':
         eq_weight, eq_bias_transform = compute_eq_projector(A_backbone)
-        algo = models.POCS(nonnegative_mask=nonnegative_mask,
+        algo = models.POCS(nonnegative_mask=nonnegative_mask.bool(),
                            eq_weight=eq_weight, eq_bias_transform=eq_bias_transform)
 
     elif args.algo == 'DC3':
