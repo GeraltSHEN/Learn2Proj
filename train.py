@@ -59,12 +59,14 @@ def Learning(args, data, problem, model, feasibility_net, optimizer):
         epoch_stats = {}
         # train
         model.train()
+        feasibility_net.train()
         train_model(optimizer, model, feasibility_net, args, data, problem, epoch_stats)
         curr_loss = epoch_stats['train_loss'] / epoch_stats['train_agg']
         log_cpu_memory_usage(epoch, 'training')
 
         # validate
         model.eval()
+        feasibility_net.eval()
         validate_model(model, feasibility_net, args, data, problem, epoch_stats)
         # log_cpu_memory_usage(epoch, 'validation')
 
@@ -188,6 +190,7 @@ def evaluate_model(args, data, problem):
     model = load_weights(model, args)
     feasibility_net = load_algo(args)
     model.eval()
+    feasibility_net.eval()
     for i, batch in enumerate(data['test']):
         start_time = time.time()
         optimality_gap = get_loss(model, feasibility_net, batch, problem, args, "gap")
