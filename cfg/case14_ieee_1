@@ -1,5 +1,5 @@
 act_cls: relu
-algo: LDRPM
+algo: POCS
 batch_norm: true
 batch_size: 64
 bsz_factor: 100

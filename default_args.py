@@ -11,6 +11,7 @@ def get_default_args(dataset):
     defaults["max_iters"] = 300
     defaults["dc3_lr"] = 1e-7
     defaults["dc3_momentum"] = 0.5
+    defaults['ldr_temp'] = 0.01
     # dataset related parameters
     defaults["data_generator"] = True
     defaults["renew_freq"] = 88

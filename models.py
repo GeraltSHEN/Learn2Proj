@@ -215,13 +215,14 @@ class POCS(nn.Module):
 
 
 class LDRPM(nn.Module):
-    def __init__(self, nonnegative_mask, eq_weight, eq_bias_transform, ldr_weight, ldr_bias):
+    def __init__(self, nonnegative_mask, eq_weight, eq_bias_transform, ldr_weight, ldr_bias, ldr_temp):
         super(LDRPM, self).__init__()
         self.name = 'LDRPM'
         self.nonnegative_mask = nonnegative_mask
         self.eq_projector = Projector(weight=eq_weight, bias_transform=eq_bias_transform)
         self.ldr_projector = Projector(weight=ldr_weight, bias=ldr_bias)
         self.x_LDR = ldr_bias
+        self.ldr_temp = ldr_temp
 
     def update_ldr_ref(self, features):
         with torch.no_grad():
@@ -232,7 +233,16 @@ class LDRPM(nn.Module):
         s = self.x_LDR - x_eq
         alphas = - x_eq / (s + 1e-8)
         mask = (x_eq < 0) * self.nonnegative_mask
-        alpha = torch.max(alphas * mask, dim=-1).values
+
+        if self.training:
+            masked_alphas = alphas + (1 - mask) * (-1e8)
+            weights = torch.softmax(masked_alphas * self.ldr_temp, dim=-1)
+            alpha = (alphas * weights).sum(dim=-1)
+        else:
+            masked_alphas = alphas * mask
+            alpha = torch.max(masked_alphas, dim=-1).values
+        #
+        # alpha = torch.max(masked_alphas, dim=-1).values
         x_star = self.x_LDR * alpha.unsqueeze(-1) + x_eq * (1 - alpha).unsqueeze(-1)
         return x_star
 

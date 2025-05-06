@@ -1,0 +1,20 @@
+#!/bin/sh -l
+#FILENAME:  case14_exp2
+
+#SBATCH -A canli-k
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --gres=gpu:1
+#SBATCH --cpus-per-task=8
+#SBATCH --time=23:30:00
+#SBATCH --job-name case14_exp2
+#SBATCH --output=/home/chen4433/joboutput/case14_exp/ldrpm.out
+
+module load cuda
+echo $CUDA_VISIBLE_DEVICE
+module load conda
+conda activate base
+
+python main.py --dataset case14_ieee --cfg_idx 2
+
+

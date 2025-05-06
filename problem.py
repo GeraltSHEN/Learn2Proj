@@ -9,7 +9,7 @@ class PrimalLP:
 
     @staticmethod
     def optimality_gap(obj, true_obj):
-        return (true_obj - obj) / true_obj
+        return torch.abs((true_obj - obj) / true_obj)
 
     def obj_fn(self, x):
         return x @ self.c

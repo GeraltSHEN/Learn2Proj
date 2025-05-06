@@ -47,7 +47,7 @@ def load_algo(args):
         eq_weight, eq_bias_transform = compute_eq_projector(A_backbone)
         algo = models.LDRPM(nonnegative_mask=nonnegative_mask,
                             eq_weight=eq_weight, eq_bias_transform=eq_bias_transform,
-                            ldr_weight=ldr_weight, ldr_bias=ldr_bias)
+                            ldr_weight=ldr_weight, ldr_bias=ldr_bias, ldr_temp=args.ldr_temp)
 
     elif args.algo == 'POCS':
         eq_weight, eq_bias_transform = compute_eq_projector(A_backbone)
