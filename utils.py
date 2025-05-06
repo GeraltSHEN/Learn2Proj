@@ -36,14 +36,14 @@ def load_model(args):
 
 
 def load_algo(args):
-    nonnegative_mask = torch.load(f'./data/{args.dataset}/nonnegative_mask.pt')
+    nonnegative_mask = torch.load(f'./data/{args.dataset}/nonnegative_mask.pt').to(args.device)
 
-    b_backbone = torch.load(f'./data/{args.dataset}/b_backbone.pt')
-    A_backbone = torch.load(f'./data/{args.dataset}/A_backbone.pt')
+    b_backbone = torch.load(f'./data/{args.dataset}/b_backbone.pt').to(args.device)
+    A_backbone = torch.load(f'./data/{args.dataset}/A_backbone.pt').to(args.device)
 
     if args.algo == 'LDRPM':
-        ldr_weight = torch.load(f'./data/{args.dataset}/ldr_weight.pt')
-        ldr_bias = torch.load(f'./data/{args.dataset}/ldr_bias.pt')
+        ldr_weight = torch.load(f'./data/{args.dataset}/ldr_weight.pt').to(args.device)
+        ldr_bias = torch.load(f'./data/{args.dataset}/ldr_bias.pt').to(args.device)
         eq_weight, eq_bias_transform = compute_eq_projector(A_backbone)
         algo = models.LDRPM(nonnegative_mask=nonnegative_mask,
                             eq_weight=eq_weight, eq_bias_transform=eq_bias_transform,
@@ -66,6 +66,7 @@ def load_algo(args):
     else:
         raise ValueError(f"Invalid algorithm: {args.algo}")
 
+    algo = algo.to(args.device)
     print(f"Loaded algorithm: {args.algo}")
     return models.FeasibilityNet(algo=algo,
                                  eq_tol=args.eq_tol, ineq_tol=args.ineq_tol, max_iters=args.max_iters,
@@ -77,7 +78,7 @@ def compute_eq_projector(A):
     with torch.no_grad():
         PD = torch.sparse.mm(A, A.t())
         chunk = torch.sparse.mm(A.t(), torch.inverse(PD.to_dense()))
-        eq_weight = torch.eye(A.shape[-1]) - torch.sparse.mm(chunk, A)
+        eq_weight = torch.eye(A.shape[-1]).to(A.device) - torch.sparse.mm(chunk, A)
         eq_bias_transform = chunk
     return eq_weight, eq_bias_transform
 
