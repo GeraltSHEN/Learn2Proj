@@ -15,7 +15,6 @@ def load_problem(args):
     if args.problem == "primal_lp":
         c = torch.load(f'./data/{args.dataset}/c_backbone.pt').to(args.device)
         nonnegative_mask = torch.load(f'./data/{args.dataset}/nonnegative_mask.pt')
-        nonnegative_mask = torch.from_numpy(nonnegative_mask).to(args.device)  #todo: remove in the future
         problem = PrimalLP(c=c, nonnegative_mask=nonnegative_mask)
     else:
         raise ValueError('Invalid problem')
@@ -38,7 +37,6 @@ def load_model(args):
 
 def load_algo(args):
     nonnegative_mask = torch.load(f'./data/{args.dataset}/nonnegative_mask.pt')
-    nonnegative_mask = torch.from_numpy(nonnegative_mask).to(args.device)  # todo: remove in the future
 
     b_backbone = torch.load(f'./data/{args.dataset}/b_backbone.pt')
     A_backbone = torch.load(f'./data/{args.dataset}/A_backbone.pt')
