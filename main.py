@@ -53,8 +53,9 @@ def complete_args(cfg_file, problem_json, init_args):
     if args.model == 'mlp':
         args.out_dim = args.var_num
     if args.algo == 'DC3':
-        if args.changing_feature == 'b':
-            args.out_dim = args.constr_num
+        raise NotImplementedError("DC3 is not supported in this version of the code.")
+        # if args.changing_feature == 'b':
+        #     args.out_dim = args.constr_num
 
     # Assert
 

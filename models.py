@@ -116,9 +116,9 @@ class OPTNET(nn.Module):
 
         cols = nonnegative_mask.nonzero(as_tuple=True)[0]
         rows = torch.arange(len(cols))
-        _G = torch.zeros((len(rows), var_num), device=self.device)
+        _G = torch.zeros((len(rows), var_num))
         _G[rows, cols] = 1.0
-        self.G = _G
+        self.G = _G.to(self.device)
         self.h = 0  # torch.zeros(int(nonnegative_mask.sum().item()))
 
         x = cp.Variable(var_num)
@@ -126,7 +126,7 @@ class OPTNET(nn.Module):
         A = cp.Parameter((constr_num, var_num))
         b = cp.Parameter(constr_num)
 
-        constraints = [A @ x == b, self.G @ x >= self.h]
+        constraints = [A @ x == b, _G.numpy() @ x >= 0]
         objective = cp.Minimize(cp.sum_squares(x - x0))
         problem = cp.Problem(objective, constraints)
         self.proj_layer = CvxpyLayer(problem, variables=[x],
