@@ -52,8 +52,9 @@ def complete_args(cfg_file, problem_json, init_args):
     args.feature_dim = args.feature_num
     if args.model == 'mlp':
         args.out_dim = args.var_num
-    elif args.model == 'dc3':
-        args.out_dim = args.constr_num
+    if args.algo == 'DC3':
+        if args.changing_feature == 'b':
+            args.out_dim = args.constr_num
 
     # Assert
 

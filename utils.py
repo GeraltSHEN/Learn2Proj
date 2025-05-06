@@ -57,7 +57,9 @@ def load_algo(args):
                            eq_weight=eq_weight, eq_bias_transform=eq_bias_transform)
 
     elif args.algo == 'DC3':
-        algo = models.DC3(A=A_backbone, nonnegative_mask=nonnegative_mask, lr=args.dc3_lr, momentum=args.dc3_momentum)
+        algo = models.DC3(A=A_backbone, nonnegative_mask=nonnegative_mask,
+                          lr=args.dc3_lr, momentum=args.dc3_momentum,
+                          changing_feature=args.changing_feature)
 
     elif args.algo == 'OPTNET':
         algo = models.OPTNET(nonnegative_mask=nonnegative_mask,
@@ -66,6 +68,7 @@ def load_algo(args):
     else:
         raise ValueError(f"Invalid algorithm: {args.algo}")
 
+    print(f"Loaded algorithm: {args.algo}")
     return models.FeasibilityNet(algo=algo,
                                  eq_tol=args.eq_tol, ineq_tol=args.ineq_tol, max_iters=args.max_iters,
                                  changing_feature=args.changing_feature).to(args.device)
@@ -85,6 +88,8 @@ def load_instances(args, b_scale, A_scale, b_backbone, A_backbone, train_val_tes
     features = torch.load(f'./data/{args.dataset}/{train_val_test}/features.pt')
     features = torch.cat([torch.ones((len(features), 1)), features], dim=1)  # add bias term
     targets = torch.load(f'./data/{args.dataset}/{train_val_test}/targets.pt')
+
+    print(f'Loaded {train_val_test} data: {len(features)} instances')
 
     dataset = []
     for i in range(len(features)):

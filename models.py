@@ -35,7 +35,7 @@ class MLP(nn.Module):
 
 
 class DC3(nn.Module):
-    def __init__(self, A, nonnegative_mask, lr, momentum):
+    def __init__(self, A, nonnegative_mask, lr, momentum, changing_feature):
         super(DC3, self).__init__()
         self.name = 'DC3'
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -43,43 +43,36 @@ class DC3(nn.Module):
         self.momentum = momentum
         self.old_x_step = 0
 
+        self.changing_feature = changing_feature
+
         _A = A.to_dense()
         self.constr_num = _A.shape[0]
         self.var_num = _A.shape[1]
+
+        self.nonnegative_mask = nonnegative_mask
+        cols = nonnegative_mask.nonzero(as_tuple=True)[0]
+        rows = torch.arange(len(cols))
+        _G = torch.zeros((len(rows), self.var_num), device=self.device)
+        _G[rows, cols] = 1.0
+        self.G = _G
+        self.h = 0
+
         det = 0
         i = 0
-        while abs(det) < 0.0001 and i < 100:
+        while abs(det) < 1e-8 and i < 100:
             self._partial_vars = np.random.choice(self.var_num, self.var_num - self.constr_num, replace=False)
             self._other_vars = np.setdiff1d(np.arange(self.var_num), self._partial_vars)
             det = torch.det(_A[:, self._other_vars])
             i += 1
+            print(f'det: {det}')
         if i == 100:
             raise Exception
         else:
             self._A_partial = _A[:, self._partial_vars].requires_grad_(False)
             self._A_other_inv = torch.inverse(_A[:, self._other_vars]).requires_grad_(False)
-
-        self.nonnegative_mask = nonnegative_mask
-        self.G = torch.diag(nonnegative_mask)
-        self.h = torch.zeros(nonnegative_mask.sum())
 
     def reset_old_x_step(self):
         self.old_x_step = 0
-
-    def update_A_inv(self, A):
-        _A = A.to_dense()
-        det = 0
-        i = 0
-        while abs(det) < 0.0001 and i < 100:
-            self._partial_vars = np.random.choice(self.var_num, self.var_num - self.constr_num, replace=False)
-            self._other_vars = np.setdiff1d(np.arange(self.var_num), self._partial_vars)
-            det = torch.det(_A[:, self._other_vars])
-            i += 1
-        if i == 100:
-            raise Exception
-        else:
-            self._A_partial = _A[:, self._partial_vars].requires_grad_(False)
-            self._A_other_inv = torch.inverse(_A[:, self._other_vars]).requires_grad_(False)
 
     def complete(self, x, b):
         complete_x = torch.zeros(b.shape[0], self.var_num, device=self.device)
@@ -96,8 +89,16 @@ class DC3(nn.Module):
         x[:, self.other_vars] = - (grad @ self._A_partial.T) @ self._A_other_inv.T
         return x
 
+    def ineq_grad(self, x):
+        return 2 * torch.clamp(x@self.G.T - self.h, 0) @ self.G
+
     def forward(self, x, b):
-        x_step = self.ineq_partial_grad(x, b)
+        if self.changing_feature == 'A':
+            x_step = self.ineq_grad(x)
+        elif self.changing_feature == 'b':
+            x_step = self.ineq_partial_grad(x, b)
+        else:
+            raise ValueError("Invalid changing_feature. Must be either 'A' or 'b'.")
         new_x_step = self.lr * x_step + self.momentum * self.old_x_step
         x = x - new_x_step
         self.old_x_step = new_x_step
@@ -252,10 +253,9 @@ class FeasibilityNet(nn.Module):
 
     def forward(self, x, A, b, nonnegative_mask, feature):
         if self.algo_name == 'DC3':
-            if self.changing_feature == 'A':
-                self.algo.update_A_inv(A)
+            if self.changing_feature == 'b':
+                x = self.algo.complete(x, b)  # complete
             self.algo.reset_old_x_step()
-            x = self.algo.complete(x, b)  # complete
         elif self.algo_name == 'POCS':
             if self.changing_feature == 'A':
                 self.algo.eq_projector.update_weight_and_bias_transform(A)
