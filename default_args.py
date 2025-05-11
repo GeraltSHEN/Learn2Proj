@@ -27,6 +27,7 @@ def get_default_args(dataset):
     defaults["batch_size"] = 4
     defaults["bsz_factor"] = 5
     defaults["epochs"] = 4
+    defaults["pretrain_epochs"] = 3
 
     if dataset == 'SSLdebug':
         defaults["batch_size"] = 4

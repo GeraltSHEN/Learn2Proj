@@ -53,14 +53,24 @@ def train_model(optimizer, model, feasibility_net, args, data, problem, epoch_st
 def Learning(args, data, problem, model, feasibility_net, optimizer):
     best = float('inf')
     stats = {}
-    for epoch in range(args.epochs):
+    for epoch in range(args.pretrain_epochs + args.epochs):
         if args.data_generator and epoch % args.renew_freq == 0:
             data['train'].reset_data()
+
+        if args.algo == 'LDRPM':
+            if epoch <= args.pretrain_epochs:
+                # pretrain the model
+                args.loss_type = 'mse'
+            else:
+                args.loss_type = 'obj'
+
         epoch_stats = {}
         # train
         model.train()
         feasibility_net.train()
         train_model(optimizer, model, feasibility_net, args, data, problem, epoch_stats)
+        if epoch % 10 == 0:
+            print(f'epoch {epoch},  alpha: {feasibility_net.algo.alpha.mean()}')
         curr_loss = epoch_stats['train_loss'] / epoch_stats['train_agg']
         log_cpu_memory_usage(epoch, 'training')
 
@@ -133,17 +143,27 @@ def get_loss(model, feasibility_net, batch, problem, args, loss_type):
 
     if args.problem == 'primal_lp':
         x = model(batch.feature)
-        x = feasibility_net(x=x, A=A_sp, b=batch.b, nonnegative_mask=problem.nonnegative_mask, feature=batch.feature)
+        x_feas = feasibility_net(x=x, A=A_sp, b=batch.b, nonnegative_mask=problem.nonnegative_mask, feature=batch.feature)
 
     else:
         raise ValueError('Invalid problem')
 
-    predicted_obj = problem.obj_fn(x=x)
+    predicted_obj = problem.obj_fn(x=x_feas)
 
     if loss_type == 'obj':
+
+        if args.algo == 'LDRPM':
+            return predicted_obj.mean() + args.alpha_penalty * feasibility_net.algo.alpha.mean()
+
         return predicted_obj.mean()
+
     elif loss_type == 'gap':
         return problem.optimality_gap(predicted_obj, batch.target).mean()
+
+    elif loss_type == 'mse':
+        assert args.algo == 'LDRPM'
+        return F.mse_loss(x, feasibility_net.algo.x_LDR)
+
     else:
         raise ValueError('Invalid loss_type')
 

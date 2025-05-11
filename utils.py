@@ -42,8 +42,8 @@ def load_algo(args):
     A_backbone = torch.load(f'./data/{args.dataset}/A_backbone.pt').to(args.device)
 
     if args.algo == 'LDRPM':
-        ldr_weight = torch.load(f'./data/{args.dataset}/ldr_weight.pt').to(args.device)
-        ldr_bias = torch.load(f'./data/{args.dataset}/ldr_bias.pt').to(args.device)
+        ldr_weight = torch.load(f'./data/{args.dataset}/feasibility/ldr_weight.pt').to(args.device)
+        ldr_bias = torch.load(f'./data/{args.dataset}/feasibility/ldr_bias.pt').to(args.device)
         eq_weight, eq_bias_transform = compute_eq_projector(A_backbone)
         algo = models.LDRPM(nonnegative_mask=nonnegative_mask,
                             eq_weight=eq_weight, eq_bias_transform=eq_bias_transform,
@@ -59,9 +59,9 @@ def load_algo(args):
                           lr=args.dc3_lr, momentum=args.dc3_momentum,
                           changing_feature=args.changing_feature)
 
-    elif args.algo == 'OPTNET':
-        algo = models.OPTNET(nonnegative_mask=nonnegative_mask,
-                             constr_num=args.constr_num, var_num=args.var_num)
+    # elif args.algo == 'OPTNET':
+    #     algo = models.OPTNET(nonnegative_mask=nonnegative_mask,
+    #                          constr_num=args.constr_num, var_num=args.var_num)
 
     else:
         raise ValueError(f"Invalid algorithm: {args.algo}")

@@ -18,7 +18,7 @@ def add_arguments():
 
     # save related parameters
     parser.add_argument("--resultSaveFreq", default=1000, type=int)
-    parser.add_argument("--resultPrintFreq", default=50, type=int)
+    parser.add_argument("--resultPrintFreq", default=10, type=int)
     parser.add_argument("--float64", default=True, type=bool)
 
     def str2bool(v):
@@ -53,9 +53,10 @@ def complete_args(cfg_file, problem_json, init_args):
     if args.model == 'mlp':
         args.out_dim = args.var_num
     if args.algo == 'DC3':
-        raise NotImplementedError("DC3 is not supported in this version of the code.")
-        # if args.changing_feature == 'b':
-        #     args.out_dim = args.constr_num
+        if args.changing_feature == 'b':
+            args.out_dim = args.constr_num
+        elif args.changing_feature == 'A':
+            raise NotImplementedError
 
     # Assert
 
