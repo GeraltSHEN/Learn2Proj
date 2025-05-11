@@ -13,8 +13,8 @@ import os
 
 def load_problem(args):
     if args.problem == "primal_lp":
-        c = torch.load(f'./data/{args.dataset}/c_backbone.pt').to(args.device)
-        nonnegative_mask = torch.load(f'./data/{args.dataset}/nonnegative_mask.pt')
+        c = torch.load(f'./data/{args.dataset}/new_feasibility/c_backbone.pt').to(args.device)
+        nonnegative_mask = torch.load(f'./data/{args.dataset}/new_feasibility/nonnegative_mask.pt')
         problem = PrimalLP(c=c, nonnegative_mask=nonnegative_mask)
     else:
         raise ValueError('Invalid problem')
@@ -36,14 +36,14 @@ def load_model(args):
 
 
 def load_algo(args):
-    nonnegative_mask = torch.load(f'./data/{args.dataset}/nonnegative_mask.pt').to(args.device)
+    nonnegative_mask = torch.load(f'./data/{args.dataset}/new_feasibility/nonnegative_mask.pt').to(args.device)
 
-    b_backbone = torch.load(f'./data/{args.dataset}/b_backbone.pt').to(args.device)
-    A_backbone = torch.load(f'./data/{args.dataset}/A_backbone.pt').to(args.device)
+    b_backbone = torch.load(f'./data/{args.dataset}/new_feasibility/b_backbone.pt').to(args.device)
+    A_backbone = torch.load(f'./data/{args.dataset}/new_feasibility/A_backbone.pt').to(args.device)
 
     if args.algo == 'LDRPM':
-        ldr_weight = torch.load(f'./data/{args.dataset}/feasibility/ldr_weight.pt').to(args.device)
-        ldr_bias = torch.load(f'./data/{args.dataset}/feasibility/ldr_bias.pt').to(args.device)
+        ldr_weight = torch.load(f'./data/{args.dataset}/new_feasibility/ldr_weight.pt').to(args.device)
+        ldr_bias = torch.load(f'./data/{args.dataset}/new_feasibility/ldr_bias.pt').to(args.device)
         eq_weight, eq_bias_transform = compute_eq_projector(A_backbone)
         algo = models.LDRPM(nonnegative_mask=nonnegative_mask,
                             eq_weight=eq_weight, eq_bias_transform=eq_bias_transform,
@@ -84,9 +84,9 @@ def compute_eq_projector(A):
 
 
 def load_instances(args, b_scale, A_scale, b_backbone, A_backbone, train_val_test):
-    features = torch.load(f'./data/{args.dataset}/{train_val_test}/features.pt')
+    features = torch.load(f'./data/{args.dataset}/new_feasibility/{train_val_test}/features.pt')
     features = torch.cat([torch.ones((len(features), 1)), features], dim=1)  # add bias term
-    targets = torch.load(f'./data/{args.dataset}/{train_val_test}/targets.pt')
+    targets = torch.load(f'./data/{args.dataset}/new_feasibility/{train_val_test}/targets.pt')
 
     print(f'Loaded {train_val_test} data: {len(features)} instances')
 
@@ -126,18 +126,18 @@ def load_instances(args, b_scale, A_scale, b_backbone, A_backbone, train_val_tes
 
 
 def load_data(args):
-    b_backbone = torch.load(f'./data/{args.dataset}/b_backbone.pt')
-    A_backbone = torch.load(f'./data/{args.dataset}/A_backbone.pt')
+    b_backbone = torch.load(f'./data/{args.dataset}/new_feasibility/b_backbone.pt')
+    A_backbone = torch.load(f'./data/{args.dataset}/new_feasibility/A_backbone.pt')
 
     if args.changing_feature == 'b':
-        b_scale = torch.load(f'./data/{args.dataset}/b_scale.pt')
+        b_scale = torch.load(f'./data/{args.dataset}/new_feasibility/b_scale.pt')
         A_scale = None
         b_backbone = None
-        A_backbone = torch.load(f'./data/{args.dataset}/A_backbone.pt')
+        A_backbone = torch.load(f'./data/{args.dataset}/new_feasibility/A_backbone.pt')
     elif args.changing_feature == 'A':
         b_scale = None
-        A_scale = torch.load(f'./data/{args.dataset}/A_scale.pt')
-        b_backbone = torch.load(f'./data/{args.dataset}/b_backbone.pt')
+        A_scale = torch.load(f'./data/{args.dataset}/new_feasibility/A_scale.pt')
+        b_backbone = torch.load(f'./data/{args.dataset}/new_feasibility/b_backbone.pt')
         A_backbone = None
     else:
         raise ValueError('Invalid changing_feature')

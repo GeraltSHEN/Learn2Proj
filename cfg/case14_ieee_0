@@ -1,5 +1,5 @@
 act_cls: relu
-algo: DC3
+algo: LDRPM
 alpha_penalty: 0
 batch_norm: true
 batch_size: 5

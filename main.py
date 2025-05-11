@@ -91,7 +91,7 @@ def main(args):
 if __name__ == '__main__':
     init_args = add_arguments()
     cfg_file = f"./cfg/{init_args.dataset}_{init_args.cfg_idx}"
-    metadata_json = f"./data/{init_args.dataset}/metadata.json"
+    metadata_json = f"./data/{init_args.dataset}/new_feasibility/metadata.json"
     args = complete_args(cfg_file, metadata_json, init_args)
     for key, value in vars(args).items():
         print(f"{key}: {value}")
