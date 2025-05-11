@@ -121,7 +121,6 @@ class DC3(nn.Module):
         if self.changing_feature == 'A':
             A = A.to_dense()
 
-
     def complete(self, x, b):
         bsz = x.shape[0]
         complete_x = torch.zeros(bsz, self.var_num, device=self.device)
@@ -131,21 +130,16 @@ class DC3(nn.Module):
         complete_x[:, self._other_vars] = (b - x @ self._A_partial.T) @ self._A_other_inv.T
         return complete_x
 
-    def ineq_partial_grad(self, x, G):
+    def ineq_partial_grad(self, x, b, G):
         bsz = x.shape[0]
         if self.changing_feature == 'b':
             G = self.G.repeat(bsz, 1)
-        G_effective = G[:, self.partial_vars] - G[:, self.other_vars] @ (self._A_other_inv @ self._A_partial)
-
-
-        h_effective = self.h - (b @ self._A_other_inv.T) @ G[:, self.other_vars].T
-
-
-
-        grad = 2 * torch.clamp(x[:, self.partial_vars] @ G_effective.T - h_effective, 0) @ G_effective
+        G_effective = G[:, self._partial_vars] - G[:, self._other_vars] @ (self._A_other_inv @ self._A_partial)
+        h_effective = self.h - (b @ self._A_other_inv.T) @ G[:, self._other_vars].T
+        grad = 2 * torch.clamp(x[:, self._partial_vars] @ G_effective.T - h_effective, 0) @ G_effective
         x = torch.zeros(bsz, self.var_num, device=self.device)
-        x[:, self.partial_vars] = grad
-        x[:, self.other_vars] = - (grad @ self._A_partial.T) @ self._A_other_inv.T
+        x[:, self._partial_vars] = grad
+        x[:, self._other_vars] = - (grad @ self._A_partial.T) @ self._A_other_inv.T
         return x
 
     def forward(self, x, b, G_old):
@@ -293,7 +287,7 @@ class FeasibilityNet(nn.Module):
                and self.iters < self.max_iters):
 
             if self.algo_name == 'DC3':
-                x = self.algo(x, b)
+                x = self.algo(x, b, None)  # placeholder for G_old
             elif self.algo_name == 'POCS':
                 x = self.algo(x)
             elif self.algo_name == 'LDRPM':
@@ -304,6 +298,7 @@ class FeasibilityNet(nn.Module):
 
             self.iters += 1
             self.eq_epsilon, self.ineq_epsilon = self.stopping_criterion(x, A, b, nonnegative_mask)
+            #print(f'iter: {self.iters}, eq_epsilon: {self.eq_epsilon.mean()}, ineq_epsilon: {self.ineq_epsilon.mean()}')
 
         return x
 

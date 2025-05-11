@@ -69,7 +69,7 @@ def Learning(args, data, problem, model, feasibility_net, optimizer):
         model.train()
         feasibility_net.train()
         train_model(optimizer, model, feasibility_net, args, data, problem, epoch_stats)
-        if epoch % 10 == 0:
+        if epoch % 10 == 0 and args.algo == 'LDRPM':
             print(f'epoch {epoch},  alpha: {feasibility_net.algo.alpha.mean()}')
         curr_loss = epoch_stats['train_loss'] / epoch_stats['train_agg']
         log_cpu_memory_usage(epoch, 'training')
@@ -154,6 +154,11 @@ def get_loss(model, feasibility_net, batch, problem, args, loss_type):
 
         if args.algo == 'LDRPM':
             return predicted_obj.mean() + args.alpha_penalty * feasibility_net.algo.alpha.mean()
+
+        if args.algo == 'DC3':
+            # todo:
+
+            pass
 
         return predicted_obj.mean()
 
