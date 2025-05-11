@@ -1,12 +1,13 @@
 act_cls: relu
 algo: LDRPM
+alpha_penalty: 0
 batch_norm: true
 batch_size: 64
 bsz_factor: 100
 data_generator: true
 dc3_lr: 1.0e-07
 dc3_momentum: 0.5
-epochs: 100
+epochs: 1000
 eq_tol: 0.0001
 hidden_dims:
 - 256
@@ -18,5 +19,6 @@ lr: 0.0001
 max_iters: 300
 model: mlp
 optimizer: adam
+pretrain_epochs: 3
 renew_freq: 88
 weight_decay: 1.0e-08
