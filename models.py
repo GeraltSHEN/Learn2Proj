@@ -7,6 +7,9 @@ import numpy as np
 import cvxpy as cp
 from cvxpylayers.torch import CvxpyLayer
 
+import numpy as np
+from scipy.linalg import qr
+
 
 class MLP(nn.Module):
     def __init__(self,
@@ -73,7 +76,7 @@ class DC3(nn.Module):
 
         self.changing_feature = changing_feature
         if changing_feature == 'b':
-            _A = A.to_dense()  # pass in A
+            _A = A.to_dense() if A.is_sparse else A  # pass in A
             self.constr_num = _A.shape[0]
             self.var_num = _A.shape[1]
             #self.b = None
@@ -93,33 +96,18 @@ class DC3(nn.Module):
         else:
             raise ValueError("Invalid changing feature. Must be 'b' or 'A'.")
 
-        _Q, _R = torch.linalg.qr(_A, mode='reduced')
-        diag_R = torch.abs(torch.diag(_R))
-        rank = torch.sum(diag_R > tol).item()
-        self._partial_vars = _P[rank:]
-        self._A_partial = _A[:, self._partial_vars].requires_grad_(False)
-        self._other_vars = _P[:rank]
+        _Q, _R, _P = qr(_A, pivoting=True)
+        r = np.linalg.matrix_rank(_A)
 
+        self._other_vars = _P[:r]
         det = torch.det(_A[:, self._other_vars])
-        print(f'det: {det}')
-
+        if abs(det) < 0.0001:
+            raise Exception
         self._A_other_inv = torch.inverse(_A[:, self._other_vars]).requires_grad_(False)
 
+        self._partial_vars = _P[r:]
+        self._A_partial = _A[:, self._partial_vars].requires_grad_(False)
 
-
-        # det = 0
-        # i = 0
-        # while abs(det) < 1e-8 and i < 100:
-        #     self._partial_vars = np.random.choice(self.var_num, self.var_num - self.constr_num, replace=False)
-        #     self._other_vars = np.setdiff1d(np.arange(self.var_num), self._partial_vars)
-        #     det = torch.det(_A[:, self._other_vars])
-        #     i += 1
-        #     print(f'det: {det}')
-        # if i == 100:
-        #     raise Exception
-        # else:
-        #     self._A_partial = _A[:, self._partial_vars].requires_grad_(False)
-        #     self._A_other_inv = torch.inverse(_A[:, self._other_vars]).requires_grad_(False)
 
     def reset_old_x_step(self):
         self.old_x_step = 0
@@ -137,10 +125,10 @@ class DC3(nn.Module):
     def complete(self, x, b):
         bsz = x.shape[0]
         complete_x = torch.zeros(bsz, self.var_num, device=self.device)
-        complete_x[:, self.partial_vars] = x
+        complete_x[:, self._partial_vars] = x
         if self.changing_feature == 'A':
             b = self.b
-        complete_x[:, self.other_vars] = (b - x @ self._A_partial.T) @ self._A_other_inv.T
+        complete_x[:, self._other_vars] = (b - x @ self._A_partial.T) @ self._A_other_inv.T
         return complete_x
 
     def ineq_partial_grad(self, x, G):
@@ -222,6 +210,9 @@ class LDRPM(nn.Module):
     def update_ldr_ref(self, features):
         with torch.no_grad():
             self.x_LDR = self.ldr_projector(features)
+            # check if there is 0 in the x_LDR where self.nonnegative_mask is True
+            if torch.any((self.x_LDR == 0) & self.nonnegative_mask.bool()):
+                print('Warning: x_LDR has 0 in the nonnegative region')
 
     def forward(self, x):
         x_eq = self.eq_projector(x)

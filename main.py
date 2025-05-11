@@ -54,7 +54,7 @@ def complete_args(cfg_file, problem_json, init_args):
         args.out_dim = args.var_num
     if args.algo == 'DC3':
         if args.changing_feature == 'b':
-            args.out_dim = args.constr_num
+            args.out_dim = args.var_num - args.constr_num
         elif args.changing_feature == 'A':
             raise NotImplementedError
 
