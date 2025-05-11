@@ -15,6 +15,8 @@ bsz_factor,2
 data_generator,True
 dc3_lr,0.0001
 dc3_momentum,0.1
+dc3_softweighteqfrac,0.5
+dc3_softweight,10
 epochs,10
 eq_tol,0.0001
 hidden_dims,"[256, 256]"
@@ -39,14 +41,14 @@ model_id,case14_ieee_cfg0
 device,cpu
 feature_dim,14
 out_dim,39
-test_optimality_gap_mean,0.19610550313260525
-test_optimality_gap_worst,0.34430892327043394
-test_eq_violation_mean,7.874928621053806e-16
-test_eq_violation_worst,1.2619458382006778e-15
-test_ineq_violation_mean,0.5875894020295985
-test_ineq_violation_worst,0.7155995873840816
+test_optimality_gap_mean,0.09202501585972321
+test_optimality_gap_worst,0.2624095667610209
+test_eq_violation_mean,8.279583962656931e-16
+test_eq_violation_worst,1.1720821723054637e-15
+test_ineq_violation_mean,0.7448033895934274
+test_ineq_violation_worst,0.9305770314393177
 test_iters_mean,300
 test_iters_worst,300
-train_time,1.0962669849395752
-val_time,0.45820438861846924
-test_time,0.280776842435201
+train_time,1.1920289993286133
+val_time,0.5072236231395176
+test_time,0.26966814200083417

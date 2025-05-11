@@ -14,5 +14,12 @@ class PrimalLP:
     def obj_fn(self, x):
         return x @ self.c
 
+    def ineq_residual(self, x):
+        return torch.relu(-x[:, self.nonnegative_mask])
+
+    @staticmethod
+    def eq_residual(x, A, b):
+        return (A @ x.flatten() - b.flatten()).view(-1, b.shape[-1])
+
 
 

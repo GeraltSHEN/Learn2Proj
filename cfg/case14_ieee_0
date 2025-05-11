@@ -7,6 +7,8 @@ bsz_factor: 2
 data_generator: true
 dc3_lr: 1.0e-04
 dc3_momentum: 0.1
+dc3_softweighteqfrac: 0.5
+dc3_softweight: 10
 epochs: 10
 eq_tol: 0.0001
 hidden_dims:

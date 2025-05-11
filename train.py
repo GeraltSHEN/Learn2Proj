@@ -156,9 +156,13 @@ def get_loss(model, feasibility_net, batch, problem, args, loss_type):
             return predicted_obj.mean() + args.alpha_penalty * feasibility_net.algo.alpha.mean()
 
         if args.algo == 'DC3':
-            # todo:
-
-            pass
+            eq_residual = problem.eq_residual(x_feas, A_sp, batch.b)
+            ineq_residual = problem.ineq_residual(x_feas)
+            eq_violation = torch.norm(eq_residual, p=2, dim=-1)
+            ineq_violation = torch.norm(ineq_residual, p=2, dim=-1)
+            return (predicted_obj +
+                    args.dc3_softweight * (1 - args.dc3_softweighteqfrac) * ineq_violation +
+                    args.dc3_softweight * args.dc3_softweighteqfrac * eq_violation).mean()
 
         return predicted_obj.mean()
 
