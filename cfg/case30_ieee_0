@@ -10,12 +10,15 @@ dc3_momentum: 0.5
 dc3_softweight: 10
 dc3_softweighteqfrac: 0.5
 epochs: 300
+eq_tol: 0.0001
 hidden_dims:
 - 256
 - 256
+ineq_tol: 0.0001
 ldr_temp: 10
 loss_type: obj
 lr: 0.0001
+max_iters: 200
 model: mlp
 optimizer: adam
 pretrain_epochs: 50
