@@ -54,6 +54,7 @@ def Learning(args, data, problem, model, feasibility_net, optimizer):
     best = float('inf')
     stats = {}
     for epoch in range(args.pretrain_epochs + args.epochs):
+        args.epoch = epoch
         if args.data_generator and epoch % args.renew_freq == 0:
             data['train'].reset_data()
 
@@ -69,7 +70,7 @@ def Learning(args, data, problem, model, feasibility_net, optimizer):
         model.train()
         feasibility_net.train()
         train_model(optimizer, model, feasibility_net, args, data, problem, epoch_stats)
-        if epoch % 10 == 0 and args.algo == 'LDRPM':
+        if epoch % 100 == 0 and args.algo == 'LDRPM':
             print(f'epoch {epoch},  alpha: {feasibility_net.algo.alpha.mean()}')
         curr_loss = epoch_stats['train_loss'] / epoch_stats['train_agg']
         log_cpu_memory_usage(epoch, 'training')
@@ -155,7 +156,7 @@ def get_loss(model, feasibility_net, batch, problem, args, loss_type):
         if args.algo == 'LDRPM':
             return predicted_obj.mean() + args.alpha_penalty * feasibility_net.algo.alpha.mean()
 
-        if args.algo == 'DC3':
+        elif args.algo == 'DC3':
             eq_residual = problem.eq_residual(x_feas, A_sp, batch.b)
             ineq_residual = problem.ineq_residual(x_feas)
             eq_violation = torch.norm(eq_residual, p=2, dim=-1)

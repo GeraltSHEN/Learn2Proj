@@ -18,7 +18,7 @@ def add_arguments():
 
     # save related parameters
     parser.add_argument("--resultSaveFreq", default=1000, type=int)
-    parser.add_argument("--resultPrintFreq", default=10, type=int)
+    parser.add_argument("--resultPrintFreq", default=1, type=int)
     parser.add_argument("--float64", default=True, type=bool)
 
     def str2bool(v):
