@@ -11,7 +11,7 @@ def get_default_args(dataset, _algo='default'):
     defaults["dc3_lr"] = 1e-7
     defaults["dc3_momentum"] = 0.5
     defaults["dc3_softweighteqfrac"] = 0.5
-    defaults["dc3_softweight"] = 10
+    defaults["dc3_softweight"] = 100
     defaults['ldr_temp'] = 10
     # dataset related parameters
     defaults["data_generator"] = True
@@ -27,7 +27,7 @@ def get_default_args(dataset, _algo='default'):
     defaults["weight_decay"] = 1e-8
     defaults["batch_size"] = 64
     defaults["bsz_factor"] = 20
-    defaults["epochs"] = 300
+    defaults["epochs"] = 200
     defaults["pretrain_epochs"] = 100
     defaults["alpha_penalty"] = 0
 
@@ -45,7 +45,7 @@ def get_default_args(dataset, _algo='default'):
         # training related parameters
         defaults["batch_size"] = 64
         defaults["bsz_factor"] = 20
-        defaults["epochs"] = 300
+        defaults["epochs"] = 200
 
     elif dataset == 'case30_ieee':
         defaults["eq_tol"] = 1e-4
@@ -56,7 +56,7 @@ def get_default_args(dataset, _algo='default'):
         # training related parameters
         defaults["batch_size"] = 64
         defaults["bsz_factor"] = 20
-        defaults["epochs"] = 300
+        defaults["epochs"] = 200
 
     elif dataset == 'case57_ieee':
         defaults["eq_tol"] = 1e-4
@@ -67,7 +67,7 @@ def get_default_args(dataset, _algo='default'):
         # training related parameters
         defaults["batch_size"] = 64
         defaults["bsz_factor"] = 20
-        defaults["epochs"] = 300
+        defaults["epochs"] = 200
 
     elif dataset == 'case118_ieee':
         defaults["eq_tol"] = 1e-4
@@ -78,7 +78,7 @@ def get_default_args(dataset, _algo='default'):
         # training related parameters
         defaults["batch_size"] = 64
         defaults["bsz_factor"] = 20
-        defaults["epochs"] = 300
+        defaults["epochs"] = 200
 
     elif dataset == 'case200_activ':
         defaults["eq_tol"] = 1e-4
@@ -89,7 +89,7 @@ def get_default_args(dataset, _algo='default'):
         # training related parameters
         defaults["batch_size"] = 64
         defaults["bsz_factor"] = 20
-        defaults["epochs"] = 300
+        defaults["epochs"] = 200
 
     else:
         raise NotImplementedError

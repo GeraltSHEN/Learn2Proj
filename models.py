@@ -95,8 +95,8 @@ class DC3(nn.Module):
         else:
             raise ValueError("Invalid changing feature. Must be 'b' or 'A'.")
 
-        _Q, _R, _P = qr(_A, pivoting=True)
-        r = np.linalg.matrix_rank(_A)
+        _Q, _R, _P = qr(_A.cpu(), pivoting=True)
+        r = np.linalg.matrix_rank(_A.cpu())
 
         self._other_vars = _P[:r]
         det = torch.det(_A[:, self._other_vars])

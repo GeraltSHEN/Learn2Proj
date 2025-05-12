@@ -181,7 +181,7 @@ def get_loss(model, feasibility_net, batch, problem, args, loss_type):
         if args.algo == 'LDRPM':
             return predicted_obj.mean() + args.alpha_penalty * feasibility_net.algo.alpha.mean()
 
-        elif args.algo == 'DC3':
+        elif args.algo in ['DC3', 'POCS']:
             eq_residual = problem.eq_residual(x_feas, A_sp, batch.b)
             ineq_residual = problem.ineq_residual(x_feas)
             eq_violation = torch.norm(eq_residual, p=2, dim=-1)

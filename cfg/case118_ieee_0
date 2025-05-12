@@ -7,9 +7,9 @@ bsz_factor: 20
 data_generator: true
 dc3_lr: 1.0e-07
 dc3_momentum: 0.5
-dc3_softweight: 10
+dc3_softweight: 100
 dc3_softweighteqfrac: 0.5
-epochs: 300
+epochs: 200
 eq_tol: 0.0001
 hidden_dims:
 - 256
