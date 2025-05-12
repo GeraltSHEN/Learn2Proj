@@ -18,9 +18,9 @@ ineq_tol: 0.0001
 ldr_temp: 10
 loss_type: obj
 lr: 0.0001
-max_iters: 200
+max_iters: 300
 model: mlp
 optimizer: adam
-pretrain_epochs: 50
+pretrain_epochs: 100
 renew_freq: 20
 weight_decay: 1.0e-08

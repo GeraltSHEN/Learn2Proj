@@ -28,7 +28,7 @@ def get_default_args(dataset, _algo='default'):
     defaults["batch_size"] = 64
     defaults["bsz_factor"] = 20
     defaults["epochs"] = 300
-    defaults["pretrain_epochs"] = 50
+    defaults["pretrain_epochs"] = 100
     defaults["alpha_penalty"] = 0
 
     if dataset == 'SSLdebug':
@@ -39,7 +39,7 @@ def get_default_args(dataset, _algo='default'):
     elif dataset == 'case14_ieee':
         defaults["eq_tol"] = 1e-4
         defaults["ineq_tol"] = 1e-4
-        defaults["max_iters"] = 200
+        defaults["max_iters"] = 300
         # layers related parameters
         defaults["hidden_dims"] = [256, 256]
         # training related parameters
@@ -50,7 +50,7 @@ def get_default_args(dataset, _algo='default'):
     elif dataset == 'case30_ieee':
         defaults["eq_tol"] = 1e-4
         defaults["ineq_tol"] = 1e-4
-        defaults["max_iters"] = 200
+        defaults["max_iters"] = 300
         # layers related parameters
         defaults["hidden_dims"] = [256, 256]
         # training related parameters
@@ -61,7 +61,7 @@ def get_default_args(dataset, _algo='default'):
     elif dataset == 'case57_ieee':
         defaults["eq_tol"] = 1e-4
         defaults["ineq_tol"] = 1e-4
-        defaults["max_iters"] = 200
+        defaults["max_iters"] = 300
         # layers related parameters
         defaults["hidden_dims"] = [256, 256]
         # training related parameters
@@ -72,7 +72,7 @@ def get_default_args(dataset, _algo='default'):
     elif dataset == 'case118_ieee':
         defaults["eq_tol"] = 1e-4
         defaults["ineq_tol"] = 1e-4
-        defaults["max_iters"] = 200
+        defaults["max_iters"] = 300
         # layers related parameters
         defaults["hidden_dims"] = [256, 256]
         # training related parameters
@@ -83,7 +83,7 @@ def get_default_args(dataset, _algo='default'):
     elif dataset == 'case200_activ':
         defaults["eq_tol"] = 1e-4
         defaults["ineq_tol"] = 1e-4
-        defaults["max_iters"] = 200
+        defaults["max_iters"] = 300
         # layers related parameters
         defaults["hidden_dims"] = [256, 256]
         # training related parameters
@@ -101,8 +101,6 @@ def get_default_args(dataset, _algo='default'):
 
     print(f"Default Configuration file saved to ./cfg/{dataset}_{mapping[_algo]}")
 
-# SSLdebug, case14_ieee, case30_ieee, case57_ieee, case118_ieee, case200_activ
-get_default_args("SSLdebug")
 
 for dataset in ['case14_ieee', 'case30_ieee', 'case57_ieee', 'case118_ieee', 'case200_activ']:
     for algo in ['default', 'POCS', 'LDRPM', 'DC3']:
