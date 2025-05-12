@@ -122,7 +122,7 @@ def load_instances(args, b_scale, A_scale, b_backbone, A_backbone, train_val_tes
         shuffle = False
     else:
         raise ValueError('Invalid train_val_test')
-    return DataLoader(dataset, batch_size=bsz, shuffle=shuffle)
+    return DataLoader(dataset, batch_size=bsz, shuffle=shuffle, num_workers=0, pin_memory=False, persistent_workers=False)
 
 
 def load_data(args):
@@ -224,7 +224,7 @@ class InstanceGenerator:
                                            var_num=self.var_num))
 
         return DataLoader(train_dataset, batch_size=self.batch_size, shuffle=True,
-                          exclude_keys=['constr_num', 'var_num'])
+                          exclude_keys=['constr_num', 'var_num'], num_workers=0, pin_memory=False, persistent_workers=False)
 
     def reset_data(self):
         self.data = self._generate_data()
