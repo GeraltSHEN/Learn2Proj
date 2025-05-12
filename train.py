@@ -8,6 +8,9 @@ import os
 import pickle
 import matplotlib.pyplot as plt
 
+from torch_geometric.data import Data
+from torch_geometric.loader import DataLoader
+
 import psutil
 
 
@@ -46,7 +49,7 @@ def run_training(args, data, problem):
 
 
 def train_model(optimizer, model, feasibility_net, args, data, problem, epoch_stats):
-    for batch in (data['train'].data if args.data_generator else data['train']):
+    for batch in (data['train'] if args.data_generator else data['train']):
         optimizer_step(model, feasibility_net, optimizer, batch, args, problem, epoch_stats)
 
 
@@ -56,7 +59,8 @@ def Learning(args, data, problem, model, feasibility_net, optimizer):
     for epoch in range(args.pretrain_epochs + args.epochs):
         args.epoch = epoch
         if args.data_generator and epoch % args.renew_freq == 0:
-            data['train'].reset_data()
+            # data['train'].reset_data()
+            data['train'].dataset.refresh()
 
         if args.algo == 'LDRPM':
             if epoch <= args.pretrain_epochs:

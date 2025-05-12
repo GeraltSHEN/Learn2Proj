@@ -144,9 +144,18 @@ def load_data(args):
 
     if args.job in ['training']:
         if args.data_generator:
-            train = InstanceGenerator(args,
-                                      b_scale, A_scale,
-                                      b_backbone, A_backbone)
+            # train = InstanceGenerator(args,
+            #                           b_scale, A_scale,
+            #                           b_backbone, A_backbone)
+            train = DataLoader(
+                InstanceDataset(args, b_scale, A_scale, b_backbone, A_backbone),
+                batch_size=args.batch_size,
+                shuffle=False,
+                num_workers=0,  # keep RAM low
+                pin_memory=False,
+                persistent_workers=False,
+                exclude_keys=['constr_num', 'var_num']
+            )
         else:
             train = load_instances(args, b_scale, A_scale,
                                       b_backbone, A_backbone, 'train')
@@ -174,60 +183,147 @@ class BasicData(Data):
         return super().__cat_dim__(key, value, *args, **kwargs)
 
 
-class InstanceGenerator:
-    def __init__(self, args,
-                 b_scale, A_scale,
-                 b_backbone, A_backbone):
-        self.bsz_factor = args.bsz_factor
-        self.batch_size = args.batch_size
-        self.feature_lb = torch.ones(1+args.feature_num)
-        self.feature_ub = torch.cat([torch.ones(1), - torch.ones(args.feature_num)])
-        self.b_scale = b_scale
-        self.A_scale = A_scale
-        self.b_backbone = b_backbone
-        self.A_backbone = A_backbone
+class InstanceDataset(torch.utils.data.Dataset):
+    def __init__(self, args, b_scale, A_scale, b_backbone, A_backbone):
+        self.args          = args
+        self.b_scale       = b_scale
+        self.A_scale       = A_scale
+        self.b_backbone    = b_backbone
+        self.A_backbone    = A_backbone
+        self.N             = args.bsz_factor * args.batch_size   # total samples/epoch
 
-        self.constr_num = args.constr_num
-        self.var_num = args.var_num
-        self.changing_feature = args.changing_feature
+        self.feature_lb = torch.ones(1 + args.feature_num)
+        self.feature_ub = torch.cat([torch.ones(1), -torch.ones(args.feature_num)])
 
-        self.data_structure = BasicData()
+        self._seed = torch.seed()
 
-        self.data = None
-        self.reset_data()
+    def __len__(self):
+        return self.N
 
-    def _generate_data(self):
-        num_instances = self.bsz_factor * self.batch_size
-        train_dataset = []
+    def __getitem__(self, idx):
+        feature = torch.rand_like(self.feature_lb) * (self.feature_ub - self.feature_lb) + self.feature_lb
 
-        for _ in range(num_instances):
-            feature = torch.rand_like(self.feature_lb) * (self.feature_ub - self.feature_lb) + self.feature_lb
+        if self.args.changing_feature == "b":
+            b = self.b_scale @ feature
+            A = self.A_backbone
+        # else:   # changing A
+        #     b = self.b_backbone
+        #     broadcast = torch.cat([f * torch.eye(self.args.var_num, device=b.device) for f in feature], 0)
+        #     A = torch.sparse.mm(self.A_scale, broadcast)
 
-            if self.changing_feature == 'b':
-                b = self.b_scale @ feature
-                A = self.A_backbone.clone().detach()
-            elif self.changing_feature == 'A':
-                b = self.b_backbone.clone().detach()
-                broadcast = torch.cat([f * torch.eye(self.var_num) for f in feature], dim=0)
-                A = torch.sparse.mm(self.A_scale, broadcast)
-            else:
-                raise ValueError('Invalid changing_feature')
+        A = A.to_sparse() if not A.is_sparse else A
 
-            target = torch.zeros(1)
+        return BasicData(            # exactly what your model expected before
+            feature    = feature[1:],
+            target     = torch.zeros(1),
+            b          = b,
+            A_indices  = A.indices(),
+            A_values   = A.values(),
+            constr_num = self.args.constr_num,
+            var_num    = self.args.var_num,
+        )
 
-            A_sparse = A.to_sparse() if not A.is_sparse else A
-            A_indices = A_sparse.indices()
-            A_values = A_sparse.values()
-            train_dataset.append(BasicData(feature=feature[1:], target=target,
-                                           b=b, A_indices=A_indices, A_values=A_values,
-                                           constr_num=self.constr_num,
-                                           var_num=self.var_num))
+    def refresh(self):
+        self._seed = torch.seed()
 
-        return DataLoader(train_dataset, batch_size=self.batch_size, shuffle=True,
-                          exclude_keys=['constr_num', 'var_num'], num_workers=0, pin_memory=False, persistent_workers=False)
 
-    def reset_data(self):
-        self.data = self._generate_data()
+# class InstanceDataset(torch.utils.data.IterableDataset):
+#     def __init__(self, args,
+#                  b_scale, A_scale,
+#                  b_backbone, A_backbone):
+#         super().__init__()
+#         self.bsz_factor = args.bsz_factor
+#         self.batch_size = args.batch_size
+#         self.feature_lb = torch.ones(1+args.feature_num)
+#         self.feature_ub = torch.cat([torch.ones(1), - torch.ones(args.feature_num)])
+#         self.b_scale = b_scale
+#         self.A_scale = A_scale
+#         self.b_backbone = b_backbone
+#         self.A_backbone = A_backbone
+#
+#         self.constr_num = args.constr_num
+#         self.var_num = args.var_num
+#         self.changing_feature = args.changing_feature
+#
+#     def __iter__(self):
+#         for _ in range(self.bsz_factor * self.batch_size):
+#             feature = torch.rand_like(self.feature_lb) * (self.feature_ub - self.feature_lb) + self.feature_lb
+#
+#             if self.args.changing_feature == "b":
+#                 yield self._build(feature, self.b_scale @ feature, self.A_backbone)
+#             # else:                                        # changing A
+#             #     b = self.b_backbone
+#             #     broadcast = torch.cat([f * torch.eye(self.args.var_num) for f in feature], dim=0)
+#             #     A   = torch.sparse.mm(self.A_scale, broadcast)
+#             #     yield self._build(feature, b, A)
+#
+#     def _build(self, feature, b, A):
+#         A = A.to_sparse() if not A.is_sparse else A
+#         return BasicData(
+#             feature=feature[1:],
+#             target=torch.zeros(1),
+#             b=b,
+#             A_indices=A.indices(),
+#             A_values=A.values(),
+#             constr_num=self.args.constr_num,
+#             var_num=self.args.var_num,
+#         )
+
+
+# class InstanceGenerator:
+#     def __init__(self, args,
+#                  b_scale, A_scale,
+#                  b_backbone, A_backbone):
+#         self.bsz_factor = args.bsz_factor
+#         self.batch_size = args.batch_size
+#         self.feature_lb = torch.ones(1+args.feature_num)
+#         self.feature_ub = torch.cat([torch.ones(1), - torch.ones(args.feature_num)])
+#         self.b_scale = b_scale
+#         self.A_scale = A_scale
+#         self.b_backbone = b_backbone
+#         self.A_backbone = A_backbone
+#
+#         self.constr_num = args.constr_num
+#         self.var_num = args.var_num
+#         self.changing_feature = args.changing_feature
+#
+#         self.data_structure = BasicData()
+#
+#         self.data = None
+#         self.reset_data()
+#
+#     def _generate_data(self):
+#         num_instances = self.bsz_factor * self.batch_size
+#         train_dataset = []
+#
+#         for _ in range(num_instances):
+#             feature = torch.rand_like(self.feature_lb) * (self.feature_ub - self.feature_lb) + self.feature_lb
+#
+#             if self.changing_feature == 'b':
+#                 b = self.b_scale @ feature
+#                 A = self.A_backbone.clone().detach()
+#             elif self.changing_feature == 'A':
+#                 b = self.b_backbone.clone().detach()
+#                 broadcast = torch.cat([f * torch.eye(self.var_num) for f in feature], dim=0)
+#                 A = torch.sparse.mm(self.A_scale, broadcast)
+#             else:
+#                 raise ValueError('Invalid changing_feature')
+#
+#             target = torch.zeros(1)
+#
+#             A_sparse = A.to_sparse() if not A.is_sparse else A
+#             A_indices = A_sparse.indices()
+#             A_values = A_sparse.values()
+#             train_dataset.append(BasicData(feature=feature[1:], target=target,
+#                                            b=b, A_indices=A_indices, A_values=A_values,
+#                                            constr_num=self.constr_num,
+#                                            var_num=self.var_num))
+#
+#         return DataLoader(train_dataset, batch_size=self.batch_size, shuffle=True,
+#                           exclude_keys=['constr_num', 'var_num'], num_workers=0, pin_memory=False, persistent_workers=False)
+#
+#     def reset_data(self):
+#         self.data = self._generate_data()
 
 
 def get_optimizer(args, model):
