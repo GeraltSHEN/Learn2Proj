@@ -128,11 +128,22 @@ def featurize_batch(args, batch):
 
 
 def optimizer_step(model, feasibility_net, optimizer, batch, args, problem, epoch_stats):
+    torch.cuda.reset_peak_memory_stats(args.device)
+
     start_time = time.time()
     optimizer.zero_grad()
     train_loss = get_loss(model, feasibility_net, batch, problem, args, args.loss_type)
+
+    print(f"Step {args.epoch}: After forward pass of loss: {torch.cuda.memory_allocated(args.device) / 1e6:.2f} MB")
+
     train_loss.backward()
+
+    print(f"Step {args.epoch}: After backwartd pass: {torch.cuda.memory_allocated(args.device) / 1e6:.2f} MB")
+
     optimizer.step()
+
+    print(f"Step {args.epoch}: After optimizer step: {torch.cuda.memory_allocated(args.device) / 1e6:.2f} MB")
+
     train_time = time.time() - start_time
     dict_agg(epoch_stats, 'train_time', train_time)
     dict_agg(epoch_stats, 'train_loss', float(train_loss.detach().cpu()))
@@ -140,11 +151,21 @@ def optimizer_step(model, feasibility_net, optimizer, batch, args, problem, epoc
 
 
 def get_loss(model, feasibility_net, batch, problem, args, loss_type):
+    torch.cuda.reset_peak_memory_stats(args.device)
+
     batch, A_sp = featurize_batch(args, batch)
+
+    # Log memory usage before forward pass
+    print(f"Step {args.epoch}: Before forward pass: {torch.cuda.memory_allocated(args.device) / 1e6:.2f} MB")
 
     if args.problem == 'primal_lp':
         x = model(batch.feature)
+
+        print(f"Step {args.epoch}: After forward pass of model: {torch.cuda.memory_allocated(args.device) / 1e6:.2f} MB")
+
         x_feas = feasibility_net(x=x, A=A_sp, b=batch.b, nonnegative_mask=problem.nonnegative_mask, feature=batch.feature)
+
+        print(f"Step {args.epoch}: After forward pass of feasnet: {torch.cuda.memory_allocated(args.device) / 1e6:.2f} MB")
 
     else:
         raise ValueError('Invalid problem')

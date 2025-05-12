@@ -10,7 +10,6 @@ from cvxpylayers.torch import CvxpyLayer
 import numpy as np
 from scipy.linalg import qr
 
-
 class MLP(nn.Module):
     def __init__(self,
                  features_dim,
@@ -258,32 +257,16 @@ class FeasibilityNet(nn.Module):
                 x = self.algo.complete(x, b)  # complete
             self.algo.reset_old_x_step()
         elif self.algo_name == 'POCS':
-            if self.changing_feature == 'A':
-                self.algo.eq_projector.update_weight_and_bias_transform(A)
+            # if self.changing_feature == 'A':
+            #     self.algo.eq_projector.update_weight_and_bias_transform(A)
             self.algo.eq_projector.update_bias(b)
         elif self.algo_name == 'LDRPM':
-            if self.changing_feature == 'A':
-                self.algo.eq_projector.update_weight_and_bias_transform(A)
+            # if self.changing_feature == 'A':
+            #     self.algo.eq_projector.update_weight_and_bias_transform(A)
             self.algo.eq_projector.update_bias(b)
             self.algo.update_ldr_ref(feature)
 
         self.iters = 0
-
-        # x_eq = self.algo.eq_projector(x)
-        # s = self.algo.x_LDR - x_eq
-        # alphas = - x_eq / (s + 1e-8)
-        # mask = (x_eq < 0) * self.algo.nonnegative_mask
-        # alpha = torch.max(alphas * mask, dim=-1).values
-        # x_star = self.algo.x_LDR * alpha.unsqueeze(-1) + x_eq * (1 - alpha).unsqueeze(-1)
-        #
-        # def ff(x):
-        #     eq_residual = (A @ x.flatten() - b.flatten()).view(-1, b.shape[-1])
-        #     ineq_residual = torch.relu(-x[:, nonnegative_mask])
-        #     eq_violation = torch.norm(eq_residual, p=2, dim=-1)
-        #     ineq_violation = torch.norm(ineq_residual, p=2, dim=-1)
-        #     return eq_violation, ineq_violation
-        #
-        # print("debug")
 
         self.eq_epsilon, self.ineq_epsilon = self.stopping_criterion(x, A, b, nonnegative_mask)
         while ((self.eq_epsilon.mean() > self.eq_tol or self.ineq_epsilon.mean() > self.ineq_tol)
@@ -302,7 +285,6 @@ class FeasibilityNet(nn.Module):
             self.iters += 1
             self.eq_epsilon, self.ineq_epsilon = self.stopping_criterion(x, A, b, nonnegative_mask)
             #print(f'iter: {self.iters}, eq_epsilon: {self.eq_epsilon.mean()}, ineq_epsilon: {self.ineq_epsilon.mean()}')
-
         return x
 
     @staticmethod
