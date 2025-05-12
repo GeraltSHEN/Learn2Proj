@@ -17,8 +17,8 @@ def log_cpu_memory_usage(epoch, step=None):
     # Get memory info
     memory_info = process.memory_info()
     if epoch % 50 == 0:
-        # Log RSS (Resident Set Size) in MB
-        print(f"[Epoch {epoch}{f', Step {step}' if step is not None else ''}] CPU Memory - RSS: {memory_info.rss / (1024 ** 2):.2f} MB")
+        # Log RSS (Resident Set Size) in GB
+        print(f"[Epoch {epoch}{f', Step {step}' if step is not None else ''}] CPU Memory - RSS: {memory_info.rss / (1024 ** 3):.2f} GB")
 
 
 def run_training(args, data, problem):
