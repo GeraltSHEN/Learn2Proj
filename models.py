@@ -4,8 +4,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
-import cvxpy as cp
-from cvxpylayers.torch import CvxpyLayer
+# import cvxpy as cp
+# from cvxpylayers.torch import CvxpyLayer
 
 import numpy as np
 from scipy.linalg import qr
