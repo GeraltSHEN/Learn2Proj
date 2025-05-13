@@ -97,8 +97,9 @@ class DC3(nn.Module):
         self.register_buffer('_other_vars', P[:r])
         self.register_buffer('_partial_vars', P[r:])
 
-        A_other = A_cpu[:, P[:r]].to(self.device)
-        A_partial = A_cpu[:, P[r:]].to(self.device)
+        A = A.to_dense() if A.is_sparse else A
+        A_other = A[:, P[:r]]
+        A_partial = A[:, P[r:]]
 
         self.register_buffer('_A_other_inv', torch.inverse(A_other))
         self.register_buffer('_A_partial', A_partial)

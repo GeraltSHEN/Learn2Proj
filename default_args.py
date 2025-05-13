@@ -10,7 +10,7 @@ def get_default_args(dataset, _algo='default'):
     defaults["hidden_dims"] = [256, 256]
     defaults["model"] = "mlp"
     defaults["algo"] = algo  # LDRPM, DC3, POCS
-    defaults["dc3_lr"] = 1e-7
+    defaults["dc3_lr"] = 1e-4
     defaults["dc3_momentum"] = 0.5
     defaults["dc3_softweighteqfrac"] = 0.5
     defaults["dc3_softweight"] = 100
@@ -38,6 +38,8 @@ def get_default_args(dataset, _algo='default'):
 
     if algo == "DC3":
         defaults["max_iters"] = 10  # DC3 iterations
+        if dataset == "case200_activ":
+            defaults["dc3_softweight"] = 10000
 
     mapping = {'default': 0, 'POCS': 1, 'LDRPM': 2, 'DC3': 3}
 
