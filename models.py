@@ -210,22 +210,22 @@ class LDRPM(nn.Module):
         alphas = -x_eq / s
         mask = (x_eq < 0) & self.nonnegative_mask.bool()
 
-        if self.training:
-            logits = alphas * self.ldr_temp
-            neg_inf = torch.finfo(logits.dtype).min
-            logits = logits.masked_fill(~mask, neg_inf)
-            weights = torch.softmax(logits, dim=-1)
-            weights = weights * mask  # zero out weights where mask is False (feasible region)
-            denom = weights.sum(dim=-1, keepdim=True)
-            # If denom is zero (-> all weights zero -> mask has all False -> all entries feasible), weights remain unchanged to avoid division by zero
-            weights = torch.where(denom > 0, weights / denom, weights)
-            alpha = (alphas * weights).sum(-1)
-        else:
-            masked_alphas = alphas * mask
-            alpha = torch.max(masked_alphas, dim=-1).values
+        # if self.training:
+        #     logits = alphas * self.ldr_temp
+        #     neg_inf = torch.finfo(logits.dtype).min
+        #     logits = logits.masked_fill(~mask, neg_inf)
+        #     weights = torch.softmax(logits, dim=-1)
+        #     weights = weights * mask  # zero out weights where mask is False (feasible region)
+        #     denom = weights.sum(dim=-1, keepdim=True)
+        #     # If denom is zero (-> all weights zero -> mask has all False -> all entries feasible), weights remain unchanged to avoid division by zero
+        #     weights = torch.where(denom > 0, weights / denom, weights)
+        #     alpha = (alphas * weights).sum(-1)
+        # else:
+        #     masked_alphas = alphas * mask
+        #     alpha = torch.max(masked_alphas, dim=-1).values
 
-        # masked_alphas = alphas * mask
-        # alpha = torch.max(masked_alphas, dim=-1).values
+        masked_alphas = alphas * mask
+        alpha = torch.max(masked_alphas, dim=-1).values
 
         self.alpha = alpha
 
