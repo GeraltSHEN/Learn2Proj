@@ -74,10 +74,10 @@ def Learning(args, data, problem, model, feasibility_net, optimizer):
         model.train()
         feasibility_net.train()
         train_model(optimizer, model, feasibility_net, args, data, problem, epoch_stats)
-        if epoch % 100 == 0 and args.algo == 'LDRPM':
+        if epoch % 10 == 0 and args.algo == 'LDRPM':
             print(f'epoch {epoch},  alpha: {feasibility_net.algo.alpha.mean()}')
         curr_loss = epoch_stats['train_loss'] / epoch_stats['train_agg']
-        log_cpu_memory_usage(epoch, 'training')
+        # log_cpu_memory_usage(epoch, 'training')
 
         # validate
         model.eval()

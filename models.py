@@ -72,40 +72,36 @@ class DC3(nn.Module):
         self.lr = lr
         self.momentum = momentum
         self.old_x_step = 0
-
         self.changing_feature = changing_feature
+
+        A_cpu = (A.to_dense() if A.is_sparse else A).cpu()
+        self.constr_num, self.var_num = A_cpu.shape
+
         if changing_feature == 'b':
-            _A = A.to_dense() if A.is_sparse else A  # pass in A
-            self.constr_num = _A.shape[0]
-            self.var_num = _A.shape[1]
-            #self.b = None
             cols = nonnegative_mask.nonzero(as_tuple=True)[0]
-            rows = torch.arange(len(cols))
-            _G = torch.zeros((len(rows), self.var_num), device=self.device)
-            _G[rows, cols] = 1.0
-            self.G = _G  # pass in Mat(nonnegative_mask)
-            self.h = 0  # pass in 0
+            rows = torch.arange(len(cols), device=self.device)
+            G = torch.zeros((len(rows), self.var_num), device=self.device)
+            G[rows, cols] = 1.0
+            self.register_buffer('G', G)
+            self.register_buffer('h', torch.tensor(0., device=self.device))
         elif changing_feature == 'A':
-            _A = A.to_dense() # pass in A_old
-            self.constr_num = _A.shape[0]
-            self.var_num = _A.shape[1]
-            #self.b = b[:self.constr_num]  # pass in b_old
-            # self.G = None
-            #self.h = b[self.constr_num:]  # pass in h_old
+            raise NotImplementedError
         else:
             raise ValueError("Invalid changing feature. Must be 'b' or 'A'.")
 
-        _Q, _R, _P = qr(_A.cpu(), pivoting=True)
-        r = np.linalg.matrix_rank(_A.cpu())
+        with torch.no_grad():  # no autograd needed
+            Q, R, P = qr(A_cpu.numpy(), pivoting=True)
+        P = torch.from_numpy(P).to(self.device)
 
-        self._other_vars = _P[:r]
-        det = torch.det(_A[:, self._other_vars])
-        if abs(det) < 0.0001:
-            raise Exception
-        self._A_other_inv = torch.inverse(_A[:, self._other_vars]).requires_grad_(False)
+        r = np.linalg.matrix_rank(A_cpu.numpy())
+        self.register_buffer('_other_vars', P[:r])
+        self.register_buffer('_partial_vars', P[r:])
 
-        self._partial_vars = _P[r:]
-        self._A_partial = _A[:, self._partial_vars].requires_grad_(False)
+        A_other = A_cpu[:, P[:r]].to(self.device)
+        A_partial = A_cpu[:, P[r:]].to(self.device)
+
+        self.register_buffer('_A_other_inv', torch.inverse(A_other))
+        self.register_buffer('_A_partial', A_partial)
 
 
     def reset_old_x_step(self):
@@ -212,23 +208,23 @@ class LDRPM(nn.Module):
         s = (self.x_LDR - x_eq).clamp_min(torch.finfo(x_eq.dtype).eps)
         alphas = -x_eq / s
         mask = (x_eq < 0) & self.nonnegative_mask.bool()
-        #
-        # if self.training:
-        #     logits = alphas * self.ldr_temp
-        #     neg_inf = torch.finfo(logits.dtype).min
-        #     logits = logits.masked_fill(~mask, neg_inf)
-        #     weights = torch.softmax(logits, dim=-1)
-        #     weights = weights * mask  # zero out weights where mask is False (feasible region)
-        #     denom = weights.sum(dim=-1, keepdim=True)
-        #     # If denom is zero (-> all weights zero -> mask has all False -> all entries feasible), weights remain unchanged to avoid division by zero
-        #     weights = torch.where(denom > 0, weights / denom, weights)
-        #     alpha = (alphas * weights).sum(-1)
-        # else:
-        #     masked_alphas = alphas * mask
-        #     alpha = torch.max(masked_alphas, dim=-1).values
 
-        masked_alphas = alphas * mask
-        alpha = torch.max(masked_alphas, dim=-1).values
+        if self.training:
+            logits = alphas * self.ldr_temp
+            neg_inf = torch.finfo(logits.dtype).min
+            logits = logits.masked_fill(~mask, neg_inf)
+            weights = torch.softmax(logits, dim=-1)
+            weights = weights * mask  # zero out weights where mask is False (feasible region)
+            denom = weights.sum(dim=-1, keepdim=True)
+            # If denom is zero (-> all weights zero -> mask has all False -> all entries feasible), weights remain unchanged to avoid division by zero
+            weights = torch.where(denom > 0, weights / denom, weights)
+            alpha = (alphas * weights).sum(-1)
+        else:
+            masked_alphas = alphas * mask
+            alpha = torch.max(masked_alphas, dim=-1).values
+
+        # masked_alphas = alphas * mask
+        # alpha = torch.max(masked_alphas, dim=-1).values
 
         self.alpha = alpha
 

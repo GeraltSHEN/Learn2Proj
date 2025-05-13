@@ -6,6 +6,8 @@ def get_default_args(dataset, _algo='default'):
 
     defaults = {}
 
+    # layers related parameters
+    defaults["hidden_dims"] = [256, 256]
     defaults["model"] = "mlp"
     defaults["algo"] = algo  # LDRPM, DC3, POCS
     defaults["dc3_lr"] = 1e-7
@@ -13,6 +15,9 @@ def get_default_args(dataset, _algo='default'):
     defaults["dc3_softweighteqfrac"] = 0.5
     defaults["dc3_softweight"] = 100
     defaults['ldr_temp'] = 10
+    defaults["eq_tol"] = 1e-4
+    defaults["ineq_tol"] = 1e-4
+    defaults["max_iters"] = 300
     # dataset related parameters
     defaults["data_generator"] = True
     defaults["renew_freq"] = 20
@@ -31,68 +36,8 @@ def get_default_args(dataset, _algo='default'):
     defaults["pretrain_epochs"] = 100
     defaults["alpha_penalty"] = 0
 
-    if dataset == 'SSLdebug':
-        defaults["batch_size"] = 4
-        defaults["bsz_factor"] = 5
-        defaults["epochs"] = 4
-
-    elif dataset == 'case14_ieee':
-        defaults["eq_tol"] = 1e-4
-        defaults["ineq_tol"] = 1e-4
-        defaults["max_iters"] = 300
-        # layers related parameters
-        defaults["hidden_dims"] = [256, 256]
-        # training related parameters
-        defaults["batch_size"] = 64
-        defaults["bsz_factor"] = 20
-        defaults["epochs"] = 200
-
-    elif dataset == 'case30_ieee':
-        defaults["eq_tol"] = 1e-4
-        defaults["ineq_tol"] = 1e-4
-        defaults["max_iters"] = 300
-        # layers related parameters
-        defaults["hidden_dims"] = [256, 256]
-        # training related parameters
-        defaults["batch_size"] = 64
-        defaults["bsz_factor"] = 20
-        defaults["epochs"] = 200
-
-    elif dataset == 'case57_ieee':
-        defaults["eq_tol"] = 1e-4
-        defaults["ineq_tol"] = 1e-4
-        defaults["max_iters"] = 300
-        # layers related parameters
-        defaults["hidden_dims"] = [256, 256]
-        # training related parameters
-        defaults["batch_size"] = 64
-        defaults["bsz_factor"] = 20
-        defaults["epochs"] = 200
-
-    elif dataset == 'case118_ieee':
-        defaults["eq_tol"] = 1e-4
-        defaults["ineq_tol"] = 1e-4
-        defaults["max_iters"] = 300
-        # layers related parameters
-        defaults["hidden_dims"] = [256, 256]
-        # training related parameters
-        defaults["batch_size"] = 64
-        defaults["bsz_factor"] = 20
-        defaults["epochs"] = 200
-
-    elif dataset == 'case200_activ':
-        defaults["eq_tol"] = 1e-4
-        defaults["ineq_tol"] = 1e-4
-        defaults["max_iters"] = 300
-        # layers related parameters
-        defaults["hidden_dims"] = [256, 256]
-        # training related parameters
-        defaults["batch_size"] = 64
-        defaults["bsz_factor"] = 20
-        defaults["epochs"] = 200
-
-    else:
-        raise NotImplementedError
+    if algo == "DC3":
+        defaults["max_iters"] = 10  # DC3 iterations
 
     mapping = {'default': 0, 'POCS': 1, 'LDRPM': 2, 'DC3': 3}
 
