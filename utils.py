@@ -8,6 +8,8 @@ from torch_geometric.loader import DataLoader
 import json
 import math
 import random
+import time
+import csv
 import os
 
 
@@ -144,14 +146,11 @@ def load_data(args):
 
     if args.job in ['training']:
         if args.data_generator:
-            # train = InstanceGenerator(args,
-            #                           b_scale, A_scale,
-            #                           b_backbone, A_backbone)
             train = DataLoader(
                 InstanceDataset(args, b_scale, A_scale, b_backbone, A_backbone),
                 batch_size=args.batch_size,
                 shuffle=False,
-                num_workers=0,  # keep RAM low
+                num_workers=0,
                 pin_memory=False,
                 persistent_workers=False,
                 exclude_keys=['constr_num', 'var_num']
@@ -213,7 +212,7 @@ class InstanceDataset(torch.utils.data.Dataset):
 
         A = A.to_sparse() if not A.is_sparse else A
 
-        return BasicData(            # exactly what your model expected before
+        return BasicData(
             feature    = feature[1:],
             target     = torch.zeros(1),
             b          = b,
@@ -227,105 +226,6 @@ class InstanceDataset(torch.utils.data.Dataset):
         self._seed = torch.seed()
 
 
-# class InstanceDataset(torch.utils.data.IterableDataset):
-#     def __init__(self, args,
-#                  b_scale, A_scale,
-#                  b_backbone, A_backbone):
-#         super().__init__()
-#         self.bsz_factor = args.bsz_factor
-#         self.batch_size = args.batch_size
-#         self.feature_lb = torch.ones(1+args.feature_num)
-#         self.feature_ub = torch.cat([torch.ones(1), - torch.ones(args.feature_num)])
-#         self.b_scale = b_scale
-#         self.A_scale = A_scale
-#         self.b_backbone = b_backbone
-#         self.A_backbone = A_backbone
-#
-#         self.constr_num = args.constr_num
-#         self.var_num = args.var_num
-#         self.changing_feature = args.changing_feature
-#
-#     def __iter__(self):
-#         for _ in range(self.bsz_factor * self.batch_size):
-#             feature = torch.rand_like(self.feature_lb) * (self.feature_ub - self.feature_lb) + self.feature_lb
-#
-#             if self.args.changing_feature == "b":
-#                 yield self._build(feature, self.b_scale @ feature, self.A_backbone)
-#             # else:                                        # changing A
-#             #     b = self.b_backbone
-#             #     broadcast = torch.cat([f * torch.eye(self.args.var_num) for f in feature], dim=0)
-#             #     A   = torch.sparse.mm(self.A_scale, broadcast)
-#             #     yield self._build(feature, b, A)
-#
-#     def _build(self, feature, b, A):
-#         A = A.to_sparse() if not A.is_sparse else A
-#         return BasicData(
-#             feature=feature[1:],
-#             target=torch.zeros(1),
-#             b=b,
-#             A_indices=A.indices(),
-#             A_values=A.values(),
-#             constr_num=self.args.constr_num,
-#             var_num=self.args.var_num,
-#         )
-
-
-# class InstanceGenerator:
-#     def __init__(self, args,
-#                  b_scale, A_scale,
-#                  b_backbone, A_backbone):
-#         self.bsz_factor = args.bsz_factor
-#         self.batch_size = args.batch_size
-#         self.feature_lb = torch.ones(1+args.feature_num)
-#         self.feature_ub = torch.cat([torch.ones(1), - torch.ones(args.feature_num)])
-#         self.b_scale = b_scale
-#         self.A_scale = A_scale
-#         self.b_backbone = b_backbone
-#         self.A_backbone = A_backbone
-#
-#         self.constr_num = args.constr_num
-#         self.var_num = args.var_num
-#         self.changing_feature = args.changing_feature
-#
-#         self.data_structure = BasicData()
-#
-#         self.data = None
-#         self.reset_data()
-#
-#     def _generate_data(self):
-#         num_instances = self.bsz_factor * self.batch_size
-#         train_dataset = []
-#
-#         for _ in range(num_instances):
-#             feature = torch.rand_like(self.feature_lb) * (self.feature_ub - self.feature_lb) + self.feature_lb
-#
-#             if self.changing_feature == 'b':
-#                 b = self.b_scale @ feature
-#                 A = self.A_backbone.clone().detach()
-#             elif self.changing_feature == 'A':
-#                 b = self.b_backbone.clone().detach()
-#                 broadcast = torch.cat([f * torch.eye(self.var_num) for f in feature], dim=0)
-#                 A = torch.sparse.mm(self.A_scale, broadcast)
-#             else:
-#                 raise ValueError('Invalid changing_feature')
-#
-#             target = torch.zeros(1)
-#
-#             A_sparse = A.to_sparse() if not A.is_sparse else A
-#             A_indices = A_sparse.indices()
-#             A_values = A_sparse.values()
-#             train_dataset.append(BasicData(feature=feature[1:], target=target,
-#                                            b=b, A_indices=A_indices, A_values=A_values,
-#                                            constr_num=self.constr_num,
-#                                            var_num=self.var_num))
-#
-#         return DataLoader(train_dataset, batch_size=self.batch_size, shuffle=True,
-#                           exclude_keys=['constr_num', 'var_num'], num_workers=0, pin_memory=False, persistent_workers=False)
-#
-#     def reset_data(self):
-#         self.data = self._generate_data()
-
-
 def get_optimizer(args, model):
     params = model.parameters()
     if args.optimizer.lower() == 'adam':
@@ -337,30 +237,99 @@ def get_optimizer(args, model):
     return optimizer
 
 
-# bsz = 32
-# constr_num = 20
-# var_num = 50
-# A_backbone = torch.rand((constr_num, var_num))
-# b_backbone = torch.rand((constr_num,))
-# A_feature_mask = torch.randint(0, 2, (constr_num,var_num)).bool()
-# b_feature_mask = torch.randint(0, 2, (constr_num,)).bool()
-# A_feature_num = A_feature_mask.sum().item()
-# b_feature_num = b_feature_mask.sum().item()
-# b_feature_lb = torch.ones(b_feature_num) * 0.1
-# b_feature_ub = torch.ones(b_feature_num) * 2.5
-# A_feature_lb = torch.ones(A_feature_num) * 0.3
-# A_feature_ub = torch.ones(A_feature_num) * 3.5
-# class args:
-#     bsz_factor = 3
-#     batch_size = bsz
-# args = args()
-#
-# # InstanceGenerator()
-# dataloader = InstanceGenerator(args, (b_feature_lb, b_feature_ub),
-#                                (A_feature_lb, A_feature_ub),
-#                                b_backbone, A_backbone,
-#                                b_feature_mask, A_feature_mask)
-# data = dataloader.data
-# data = iter(data)
-# batch = next(data)
-# A_sparse = torch.sparse_coo_tensor(batch.A_indices, batch.A_values, (bsz * constr_num, bsz * var_num))
+def get_ldr_result(args):
+    ldr_weight = torch.load(f'./data/{args.dataset}/new_feasibility/ldr_weight.pt').to(args.device).t().requires_grad_(False)
+    ldr_bias = torch.load(f'./data/{args.dataset}/new_feasibility/ldr_bias.pt').to(args.device).requires_grad_(False)
+
+    b_backbone = torch.load(f'./data/{args.dataset}/new_feasibility/b_backbone.pt')
+    A_backbone = torch.load(f'./data/{args.dataset}/new_feasibility/A_backbone.pt')
+
+    if args.changing_feature == 'b':
+        b_scale = torch.load(f'./data/{args.dataset}/new_feasibility/b_scale.pt')
+        A_scale = None
+        b_backbone = None
+        A_backbone = torch.load(f'./data/{args.dataset}/new_feasibility/A_backbone.pt')
+    elif args.changing_feature == 'A':
+        b_scale = None
+        A_scale = torch.load(f'./data/{args.dataset}/new_feasibility/A_scale.pt')
+        b_backbone = torch.load(f'./data/{args.dataset}/new_feasibility/b_backbone.pt')
+        A_backbone = None
+    else:
+        raise ValueError('Invalid changing_feature')
+
+    test = load_instances(args, b_scale, A_scale,
+                          b_backbone, A_backbone, 'test')
+
+    if args.problem == "primal_lp":
+        c = torch.load(f'./data/{args.dataset}/new_feasibility/c_backbone.pt').to(args.device)
+        nonnegative_mask = torch.load(f'./data/{args.dataset}/new_feasibility/nonnegative_mask.pt')
+        problem = PrimalLP(c=c, nonnegative_mask=nonnegative_mask)
+    else:
+        raise ValueError('Invalid problem')
+
+    test_stats = {"test_time": 0,
+                  "test_gap": 0,
+                  "test_gap_worst": 0,
+                  "test_agg": 0,
+                  'test_iters': 0,
+                  'test_eq': 0,
+                  'test_ineq': 0,
+                  'test_eq_worst': 0,
+                  'test_ineq_worst': 0}
+
+    with torch.no_grad():
+        for i, batch in enumerate(test):
+            start_time = time.time()
+
+            bsz = batch.feature.shape[0]
+            A_sp = torch.sparse_coo_tensor(indices=batch.A_indices,
+                                           values=batch.A_values,
+                                           size=(bsz * args.constr_num, bsz * args.var_num)).to(args.device)
+            batch = batch.to(args.device)
+
+            iters = 0
+            x_LDR = ldr_bias + batch.feature @ ldr_weight
+            eq_residual = (A_sp @ x_LDR.flatten() - batch.b.flatten()).view(-1, batch.b.shape[-1])
+            ineq_residual = torch.relu(-x_LDR[:, problem.nonnegative_mask])
+            eq_violation = torch.norm(eq_residual, p=2, dim=-1)
+            ineq_violation = torch.norm(ineq_residual, p=2, dim=-1)
+            eq_epsilon = eq_violation / (1 + torch.norm(batch.b, p=2, dim=-1))  # scaled by the norm of b
+            ineq_epsilon = ineq_violation  # no scaling because rhs is 0
+            iters += 1
+
+            predicted_obj = problem.obj_fn(x=x_LDR)
+            optimality_gap = problem.optimality_gap(predicted_obj, batch.target).mean()
+
+            test_time = time.time() - start_time
+
+            gap = float(optimality_gap.mean().detach().cpu())
+            gap_worst = float(torch.norm(optimality_gap, float('inf')).detach().cpu())  # max of samples
+            test_stats["test_time"] += test_time
+            test_stats["test_gap"] += gap
+            test_stats["test_gap_worst"] = max(test_stats["test_gap_worst"], gap_worst)
+            test_stats["test_agg"] += 1
+            test_stats["test_iters"] += iters
+            test_stats["test_eq"] += float(eq_epsilon.mean().detach().cpu())
+            test_stats["test_ineq"] += float(ineq_epsilon.mean().detach().cpu())
+            test_stats["test_eq_worst"] = max(test_stats["test_eq_worst"],
+                                              float(torch.norm(eq_epsilon, float('inf')).detach().cpu()))
+            test_stats["test_ineq_worst"] = max(test_stats["test_ineq_worst"],
+                                                  float(torch.norm(ineq_epsilon, float('inf')).detach().cpu()))
+
+    scores = {'test_optimality_gap_mean': test_stats['test_gap'] / test_stats['test_agg'],
+              'test_optimality_gap_worst': test_stats['test_gap_worst'],
+              'test_eq_violation_mean': test_stats['test_eq'] / test_stats['test_agg'],
+              'test_eq_violation_worst': test_stats['test_eq_worst'],
+              'test_ineq_violation_mean': test_stats['test_ineq'] / test_stats['test_agg'],
+              'test_ineq_violation_worst': test_stats['test_ineq_worst'],
+              'test_iters_mean': int(test_stats['test_iters'] // test_stats['test_agg']),
+              'test_time': test_stats['test_time'] / test_stats['test_agg'], }
+    print(scores)
+    args_dict = vars(args)
+    args_scores_dict = args_dict | scores
+    w = csv.writer(open('./data/results_summary/' + f"{args.dataset}_feasibility_ldr" + '.csv', 'w'))
+    for key, val in args_scores_dict.items():
+        w.writerow([key, val])
+
+
+

@@ -1,5 +1,5 @@
 from train import run_training
-from utils import load_data, load_problem
+from utils import load_data, load_problem, get_ldr_result
 import argparse
 import os
 import torch
@@ -84,6 +84,8 @@ def main(args):
         problem = load_problem(args)
         data = load_data(args)
         run_training(args, data, problem)
+    elif args.job == 'get_ldr_result':
+        get_ldr_result(args)
     else:
         raise ValueError('Invalid job type')
 
