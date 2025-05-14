@@ -11,7 +11,7 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 def add_arguments():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--cfg_idx", help="config index", type=int, default=2)
+    parser.add_argument("--cfg_idx", help="config index", type=int, default=9)
     parser.add_argument("--dataset", default="case200_activ")
     parser.add_argument("--problem", help="primal_lp", default="primal_lp")
     parser.add_argument("--job", default="training", type=str)

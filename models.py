@@ -102,6 +102,11 @@ class DC3(nn.Module):
         self.register_buffer('_A_other_inv', torch.inverse(A_other))
         self.register_buffer('_A_partial', A_partial)
 
+        G_effective = G[:, self._partial_vars] - G[:, self._other_vars] @ (self._A_other_inv @ self._A_partial)
+        self.register_buffer('_G_effective', G_effective)
+        G_other_t = G[:, self._other_vars].T
+        self.register_buffer('_G_other_t', G_other_t)
+
 
     def reset_old_x_step(self):
         self.old_x_step = 0
@@ -127,9 +132,10 @@ class DC3(nn.Module):
     def ineq_partial_grad(self, x, b, G):
         bsz = x.shape[0]
         if self.changing_feature == 'b':
-            G = self.G.repeat(bsz, 1)
-        G_effective = G[:, self._partial_vars] - G[:, self._other_vars] @ (self._A_other_inv @ self._A_partial)
-        h_effective = self.h - (b @ self._A_other_inv.T) @ G[:, self._other_vars].T
+            G = self.G
+            G_effective = self._G_effective
+            G_other_t = self._G_other_t
+        h_effective = self.h - (b @ self._A_other_inv.T) @ G_other_t
         grad = 2 * torch.clamp(x[:, self._partial_vars] @ G_effective.T - h_effective, 0) @ G_effective
         x = torch.zeros(bsz, self.var_num, device=self.device)
         x[:, self._partial_vars] = grad
