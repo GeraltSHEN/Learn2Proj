@@ -126,7 +126,7 @@ def exps_args(dataset):
         if algo == 'DC3':
             # compare different softweight
             defaults["dc3_softweight"] = 100
-            defaults["max_iters"] = 10  # always 10
+            defaults["max_iters"] = 300  # always 10
             defaults["pretrain_epochs"] = 100  # always 100
             defaults["epochs"] = 200  # always 200
             idx = 3
@@ -134,7 +134,7 @@ def exps_args(dataset):
                 yaml.dump(defaults, yaml_file, default_flow_style=False)
 
             defaults["dc3_softweight"] = 1000
-            defaults["max_iters"] = 10  # always 10
+            defaults["max_iters"] = 300  # always 10
             defaults["pretrain_epochs"] = 100  # always 100
             defaults["epochs"] = 200  # always 200
             idx = 6
@@ -142,7 +142,7 @@ def exps_args(dataset):
                 yaml.dump(defaults, yaml_file, default_flow_style=False)
 
             defaults["dc3_softweight"] = 10000
-            defaults["max_iters"] = 10  # always 10
+            defaults["max_iters"] = 300  # always 10
             defaults["pretrain_epochs"] = 100  # always 100
             defaults["epochs"] = 200  # always 200
             idx = 9
