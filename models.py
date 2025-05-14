@@ -210,6 +210,133 @@ class LDRPM(nn.Module):
         return x_star
 
 
+class DC3LHS(nn.Module):
+    def __init__(self, A, h, lr, momentum):
+        super(DC3LHS, self).__init__()
+        self.name = 'DC3LHS'
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.lr = lr
+        self.momentum = momentum
+        self.old_x_step = 0
+        self.changing_feature = changing_feature
+
+        A_cpu = (A.to_dense() if A.is_sparse else A).cpu()
+        self.constr_num, self.var_num = A_cpu.shape
+
+        if changing_feature == 'b':
+            cols = nonnegative_mask.nonzero(as_tuple=True)[0]
+            rows = torch.arange(len(cols), device=self.device)
+            G = torch.zeros((len(rows), self.var_num), device=self.device)
+            G[rows, cols] = 1.0
+            self.register_buffer('G', G)
+            self.register_buffer('h', torch.tensor(0., device=self.device))
+        elif changing_feature == 'A':
+            raise NotImplementedError
+        else:
+            raise ValueError("Invalid changing feature. Must be 'b' or 'A'.")
+
+        with torch.no_grad():  # no autograd needed
+            Q, R, P = qr(A_cpu.numpy(), pivoting=True)
+        P = torch.from_numpy(P).to(self.device)
+
+        r = np.linalg.matrix_rank(A_cpu.numpy())
+        self.register_buffer('_other_vars', P[:r])
+        self.register_buffer('_partial_vars', P[r:])
+
+        A = A.to_dense() if A.is_sparse else A
+        A_other = A[:, P[:r]]
+        A_partial = A[:, P[r:]]
+
+        self.register_buffer('_A_other_inv', torch.inverse(A_other))
+        self.register_buffer('_A_partial', A_partial)
+
+        G_effective = G[:, self._partial_vars] - G[:, self._other_vars] @ (self._A_other_inv @ self._A_partial)
+        self.register_buffer('_G_effective', G_effective)
+        G_other_t = G[:, self._other_vars].T
+        self.register_buffer('_G_other_t', G_other_t)
+
+
+    def reset_old_x_step(self):
+        self.old_x_step = 0
+
+    def update_bh(self, b):
+        if self.changing_feature == 'A':
+            self.b = b[:, self.constr_num]
+            self.h = b[:, self.constr_num:]
+
+    def update_G(self, A):
+        if self.changing_feature == 'A':
+            A = A.to_dense()
+
+    def complete(self, x, b):
+        bsz = x.shape[0]
+        complete_x = torch.zeros(bsz, self.var_num, device=self.device)
+        complete_x[:, self._partial_vars] = x
+        if self.changing_feature == 'A':
+            b = self.b
+        complete_x[:, self._other_vars] = (b - x @ self._A_partial.T) @ self._A_other_inv.T
+        return complete_x
+
+    def ineq_partial_grad(self, x, b, G):
+        bsz = x.shape[0]
+        if self.changing_feature == 'b':
+            G = self.G
+            G_effective = self._G_effective
+            G_other_t = self._G_other_t
+        h_effective = self.h - (b @ self._A_other_inv.T) @ G_other_t
+        grad = 2 * torch.clamp(x[:, self._partial_vars] @ G_effective.T - h_effective, 0) @ G_effective
+        x = torch.zeros(bsz, self.var_num, device=self.device)
+        x[:, self._partial_vars] = grad
+        x[:, self._other_vars] = - (grad @ self._A_partial.T) @ self._A_other_inv.T
+        return x
+
+    def forward(self, x, b, G_old):
+        x_step = self.ineq_partial_grad(x, b, G_old)
+        new_x_step = self.lr * x_step + self.momentum * self.old_x_step
+        x = x - new_x_step
+        self.old_x_step = new_x_step
+        return x
+
+
+
+
+class LDRPMLHS(nn.Module):
+    def __init__(self, h, eq_weight, eq_bias_transform, ldr_weight, ldr_bias):
+        super(LDRPMLHS, self).__init__()
+        self.name = 'LDRPMLHS'
+        self.register_buffer('h', h)
+        self.eq_projector = Projector(weight=eq_weight, bias_transform=eq_bias_transform)
+        self.ldr_projector = Projector(weight=ldr_weight, bias=ldr_bias)
+        self.x_LDR = ldr_bias
+
+    def update_ldr_ref(self, features):
+        with torch.no_grad():
+            self.x_LDR = self.ldr_projector(features)
+
+    def forward(self, x, G):
+        x_eq = self.eq_projector(x)
+        s = ((self.x_LDR - x_eq) @ G.T).clamp_min(torch.finfo(x_eq.dtype).eps)
+        alphas = (self.h - x_eq @ G.T) / s
+        mask = x_eq @ G.T - self.h < 0
+        masked_alphas = alphas * mask
+        alpha = torch.max(masked_alphas, dim=-1).values
+
+        self.alpha = alpha
+
+        x_star = self.x_LDR * alpha.unsqueeze(-1) + x_eq * (1.0 - alpha).unsqueeze(-1)
+        return x_star
+
+
+
+
+
+
+
+
+
+
+
+
 
 class FeasibilityNet(nn.Module):
     def __init__(self, algo, eq_tol, ineq_tol, max_iters, changing_feature):

@@ -34,7 +34,6 @@ def get_default_args(dataset, _algo='default'):
     defaults["bsz_factor"] = 20
     defaults["epochs"] = 200
     defaults["pretrain_epochs"] = 100
-    defaults["alpha_penalty"] = 0
 
     if algo == "DC3":
         defaults["max_iters"] = 10  # DC3 iterations
@@ -74,7 +73,6 @@ def exps_args(dataset):
         defaults["weight_decay"] = 1e-8
         defaults["batch_size"] = 64
         defaults["bsz_factor"] = 20
-        defaults["alpha_penalty"] = 0
 
         defaults["dc3_lr"] = 1e-4
         defaults["dc3_momentum"] = 0.5
