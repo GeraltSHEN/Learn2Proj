@@ -4,8 +4,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
-# import cvxpy as cp
-# from cvxpylayers.torch import CvxpyLayer
 
 import numpy as np
 from scipy.linalg import qr
@@ -165,15 +163,6 @@ class Projector(nn.Module):
         with torch.no_grad():
             self.bias = b @ self.bias_transform
 
-    def update_weight_and_bias_transform(self, A):
-        A = A.to_sparse if not A.is_sparse else A
-        with torch.no_grad():
-            PD = torch.sparse.mm(A, A.t())
-            chunk = torch.sparse.mm(A.t(), torch.inverse(PD.to_dense()))
-            self.weight = (torch.eye(A.shape[-1]) - torch.sparse.mm(chunk, A)).t().requires_grad_(False)
-            self.bias_transform = chunk.t().requires_grad_(False)
-
-
 class POCS(nn.Module):
     def __init__(self, nonnegative_mask, eq_weight, eq_bias_transform):
         super(POCS, self).__init__()
@@ -200,30 +189,12 @@ class LDRPM(nn.Module):
     def update_ldr_ref(self, features):
         with torch.no_grad():
             self.x_LDR = self.ldr_projector(features)
-            # check if there is 0 in the x_LDR where self.nonnegative_mask is True
-            if torch.any((self.x_LDR == 0) & self.nonnegative_mask.bool()):
-                print('Warning: x_LDR has 0 in the nonnegative region')
 
     def forward(self, x):
         x_eq = self.eq_projector(x)
         s = (self.x_LDR - x_eq).clamp_min(torch.finfo(x_eq.dtype).eps)
         alphas = -x_eq / s
         mask = (x_eq < 0) & self.nonnegative_mask.bool()
-
-        # if self.training:
-        #     logits = alphas * self.ldr_temp
-        #     neg_inf = torch.finfo(logits.dtype).min
-        #     logits = logits.masked_fill(~mask, neg_inf)
-        #     weights = torch.softmax(logits, dim=-1)
-        #     weights = weights * mask  # zero out weights where mask is False (feasible region)
-        #     denom = weights.sum(dim=-1, keepdim=True)
-        #     # If denom is zero (-> all weights zero -> mask has all False -> all entries feasible), weights remain unchanged to avoid division by zero
-        #     weights = torch.where(denom > 0, weights / denom, weights)
-        #     alpha = (alphas * weights).sum(-1)
-        # else:
-        #     masked_alphas = alphas * mask
-        #     alpha = torch.max(masked_alphas, dim=-1).values
-
         masked_alphas = alphas * mask
         alpha = torch.max(masked_alphas, dim=-1).values
 
@@ -254,12 +225,8 @@ class FeasibilityNet(nn.Module):
                 x = self.algo.complete(x, b)  # complete
             self.algo.reset_old_x_step()
         elif self.algo_name == 'POCS':
-            # if self.changing_feature == 'A':
-            #     self.algo.eq_projector.update_weight_and_bias_transform(A)
             self.algo.eq_projector.update_bias(b)
         elif self.algo_name == 'LDRPM':
-            # if self.changing_feature == 'A':
-            #     self.algo.eq_projector.update_weight_and_bias_transform(A)
             self.algo.eq_projector.update_bias(b)
             self.algo.update_ldr_ref(feature)
 
@@ -296,84 +263,6 @@ class FeasibilityNet(nn.Module):
             eq_epsilon = eq_violation / (1 + torch.norm(b, p=2, dim=-1))  # scaled by the norm of b
             ineq_epsilon = ineq_violation  # no scaling because rhs is 0
             return eq_epsilon, ineq_epsilon
-
-
-
-
-
-
-
-
-
-# class OPTNET(nn.Module):
-#     def __init__(self, nonnegative_mask, constr_num, var_num):
-#         super().__init__()
-#         self.name = 'OPTNET'
-#         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-#         self.nonnegative_mask = nonnegative_mask
-#         self.constr_num = constr_num
-#         self.var_num = var_num
-#
-#         cols = nonnegative_mask.nonzero(as_tuple=True)[0]
-#         rows = torch.arange(len(cols))
-#         _G = torch.zeros((len(rows), var_num))
-#         _G[rows, cols] = 1.0
-#         self.G = _G.to(self.device)
-#         self.h = 0  # torch.zeros(int(nonnegative_mask.sum().item()))
-#
-#         x = cp.Variable(var_num)
-#         x0 = cp.Parameter(var_num)
-#         A = cp.Parameter((constr_num, var_num))
-#         b = cp.Parameter(constr_num)
-#
-#         constraints = [A @ x == b, _G.numpy() @ x >= 0]
-#         objective = cp.Minimize(cp.sum_squares(x - x0))
-#         problem = cp.Problem(objective, constraints)
-#         self.proj_layer = CvxpyLayer(problem, variables=[x],
-#                                      parameters=[x0, b, A])
-#         # test the accuracy of the projection layer
-#         # constraints = [x >= self.h]
-#         # objective = cp.Minimize(cp.sum_squares(x - x0))
-#         # problem = cp.Problem(objective, constraints)
-#         # self.proj_layer = CvxpyLayer(problem, variables=[x],
-#         #                              parameters=[x0])
-#
-#     def forward(self, x, b, A):
-#         bsz = x.shape[0]
-#
-#         # start_time = time.time()
-#         # cp_x = cp.Variable(self.var_num * bsz)
-#         # cp_x0 = cp.Parameter(self.var_num * bsz)
-#         # cp_A = cp.Parameter((self.constr_num * bsz, self.var_num * bsz))
-#         # cp_b = cp.Parameter(self.constr_num * bsz)
-#         # cp_G = torch.block_diag(*[self.G for _ in range(bsz)]).to(self.device)
-#         # cp_h = torch.zeros(int(self.nonnegative_mask.sum().item()) * bsz, device=self.device)
-#         #
-#         # constraints = [cp_A @ cp_x == cp_b, cp_G @ cp_x >= 0]
-#         # objective = cp.Minimize(cp.sum_squares(cp_x - cp_x0))
-#         # problem = cp.Problem(objective, constraints)
-#         # proj_layer = CvxpyLayer(problem, variables=[cp_x], parameters=[cp_x0, cp_b, cp_A])
-#         # print(f"Time to set up CVXPY problem: {time.time() - start_time:.4f} seconds")
-#         #
-#         # start_time = time.time()
-#         # x_proj = proj_layer(x.flatten(), b.flatten(), A.to_dense())[0]
-#         # print(f"Time to solve CVXPY problem: {time.time() - start_time:.4f} seconds")
-#         # return x_proj.view(bsz, self.var_num)
-#
-#         # not parallelized
-#         xs = []
-#         A = A.to_dense()
-#         for i in range(bsz):
-#             x0 = x[i]
-#             b_i = b[i]
-#             A_i = A[i*self.constr_num:(i+1)*self.constr_num, i*self.var_num:(i+1)*self.var_num]
-#             x_proj = self.proj_layer(x0, b_i, A_i)[0]
-#             xs.append(x_proj)
-#         return torch.stack(xs)
-
-
-
-
 
 
 
