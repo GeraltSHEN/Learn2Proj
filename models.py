@@ -266,6 +266,7 @@ class LDRPMLHS(nn.Module):
         # todo: remember to pass in h and G as -h and -G
         super(LDRPMLHS, self).__init__()
         self.name = 'LDRPMLHS'
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.register_buffer('h', h)
         self.eq_projector = Projector(weight=eq_weight, bias=eq_bias)
         self.ldr_projector = Projector(weight=ldr_weight, bias=ldr_bias)
@@ -281,7 +282,7 @@ class LDRPMLHS(nn.Module):
     def update_ldr_ref(self, features):
         with torch.no_grad():
             eq_part = self.ldr_bias + features @ self.ldr_weight
-            ones_features = torch.cat((torch.ones(features.shape[0], 1), features), dim=1)
+            ones_features = torch.cat((torch.ones(features.shape[0], 1, device=self.device), features), dim=1)
             ineq_part = torch.einsum('bd,ndm->bnm', ones_features, self.S_scale)
             ineq_part = torch.einsum('bnm,bm->bn', ineq_part, ones_features)
             self.x_LDR = torch.cat((eq_part, ineq_part), dim=1)
