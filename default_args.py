@@ -151,7 +151,7 @@ def exps_args(dataset):
 def lhs_exps_args(dataset):
     defaults = {}
 
-    for algo in ["LDRPM", "DC3"]:
+    for algo in ["LDRPM", "DC3", "POCS"]:
         defaults["algo"] = algo
         # layers related parameters
         defaults["hidden_dims"] = [256, 256]
@@ -209,6 +209,16 @@ def lhs_exps_args(dataset):
             defaults["pretrain_epochs"] = 150  # always 100
             defaults["epochs"] = 350  # always 200
             idx = 4
+            with open(f"./cfg/{dataset}_{idx}", "w") as yaml_file:
+                yaml.dump(defaults, yaml_file, default_flow_style=False)
+
+        if algo == 'POCS':
+            # compare different softweight
+            defaults["dc3_softweight"] = 1
+            defaults["max_iters"] = 300  # always 300
+            defaults["pretrain_epochs"] = 150  # always 100
+            defaults["epochs"] = 350  # always 200
+            idx = 5
             with open(f"./cfg/{dataset}_{idx}", "w") as yaml_file:
                 yaml.dump(defaults, yaml_file, default_flow_style=False)
 

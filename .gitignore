@@ -3,3 +3,6 @@
 /pretrain_tools/
 /old_code/.DS_Store
 /old_code/
+/data/results_summary/
+/data/prediction/
+/data/SSLdebug/
