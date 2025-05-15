@@ -8,7 +8,7 @@ dc3_lr: 0.0001
 dc3_momentum: 0.5
 dc3_softweight: 1
 dc3_softweighteqfrac: 0.5
-epochs: 300
+epochs: 500
 eq_tol: 0.0001
 hidden_dims:
 - 256

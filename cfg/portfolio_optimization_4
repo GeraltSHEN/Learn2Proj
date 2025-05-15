@@ -8,7 +8,7 @@ dc3_lr: 0.0001
 dc3_momentum: 0.5
 dc3_softweight: 10
 dc3_softweighteqfrac: 0.5
-epochs: 200
+epochs: 350
 eq_tol: 0.0001
 hidden_dims:
 - 256
@@ -20,6 +20,6 @@ lr: 0.0001
 max_iters: 300
 model: mlp
 optimizer: adam
-pretrain_epochs: 100
+pretrain_epochs: 150
 renew_freq: 20
 weight_decay: 1.0e-08

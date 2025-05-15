@@ -180,8 +180,8 @@ def lhs_exps_args(dataset):
             # compare pretrain and no pretrain
             defaults["dc3_softweight"] = 1  # always 1
             defaults["max_iters"] = 300  # always 300
-            defaults["pretrain_epochs"] = 100
-            defaults["epochs"] = 200
+            defaults["pretrain_epochs"] = 150
+            defaults["epochs"] = 350
             idx = 1
             with open(f"./cfg/{dataset}_{idx}", "w") as yaml_file:
                 yaml.dump(defaults, yaml_file, default_flow_style=False)
@@ -189,7 +189,7 @@ def lhs_exps_args(dataset):
             defaults["dc3_softweight"] = 1  # always 1
             defaults["max_iters"] = 300  # always 300
             defaults["pretrain_epochs"] = 0
-            defaults["epochs"] = 300
+            defaults["epochs"] = 500
             idx = 3
             with open(f"./cfg/{dataset}_{idx}", "w") as yaml_file:
                 yaml.dump(defaults, yaml_file, default_flow_style=False)
@@ -198,16 +198,16 @@ def lhs_exps_args(dataset):
             # compare different softweight
             defaults["dc3_softweight"] = 1
             defaults["max_iters"] = 300  # always 300
-            defaults["pretrain_epochs"] = 100  # always 100
-            defaults["epochs"] = 200  # always 200
+            defaults["pretrain_epochs"] = 150  # always 100
+            defaults["epochs"] = 350  # always 200
             idx = 2
             with open(f"./cfg/{dataset}_{idx}", "w") as yaml_file:
                 yaml.dump(defaults, yaml_file, default_flow_style=False)
 
             defaults["dc3_softweight"] = 10
             defaults["max_iters"] = 300  # always 300
-            defaults["pretrain_epochs"] = 100  # always 100
-            defaults["epochs"] = 200  # always 200
+            defaults["pretrain_epochs"] = 150  # always 100
+            defaults["epochs"] = 350  # always 200
             idx = 4
             with open(f"./cfg/{dataset}_{idx}", "w") as yaml_file:
                 yaml.dump(defaults, yaml_file, default_flow_style=False)
