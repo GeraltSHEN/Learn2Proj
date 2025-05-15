@@ -148,10 +148,80 @@ def exps_args(dataset):
                 yaml.dump(defaults, yaml_file, default_flow_style=False)
 
 
+def lhs_exps_args(dataset):
+    defaults = {}
+
+    for algo in ["LDRPM", "DC3"]:
+        defaults["algo"] = algo
+        # layers related parameters
+        defaults["hidden_dims"] = [256, 256]
+        defaults["act_cls"] = "relu"
+        defaults["batch_norm"] = True
+        defaults["model"] = "mlp"
+        defaults["dc3_softweighteqfrac"] = 0.5
+        defaults['ldr_temp'] = 10
+        defaults["eq_tol"] = 1e-4
+        defaults["ineq_tol"] = 1e-4
+        # dataset related parameters
+        defaults["data_generator"] = True
+        defaults["renew_freq"] = 20
+        # training related parameters
+        defaults["loss_type"] = "obj"
+        defaults["optimizer"] = "adam"
+        defaults["lr"] = 0.0001
+        defaults["weight_decay"] = 1e-8
+        defaults["batch_size"] = 64
+        defaults["bsz_factor"] = 20
+
+        defaults["dc3_lr"] = 1e-4
+        defaults["dc3_momentum"] = 0.5
+
+        if algo == 'LDRPM':
+            # compare pretrain and no pretrain
+            defaults["dc3_softweight"] = 1  # always 1
+            defaults["max_iters"] = 300  # always 300
+            defaults["pretrain_epochs"] = 100
+            defaults["epochs"] = 200
+            idx = 1
+            with open(f"./cfg/{dataset}_{idx}", "w") as yaml_file:
+                yaml.dump(defaults, yaml_file, default_flow_style=False)
+
+            defaults["dc3_softweight"] = 1  # always 1
+            defaults["max_iters"] = 300  # always 300
+            defaults["pretrain_epochs"] = 0
+            defaults["epochs"] = 300
+            idx = 3
+            with open(f"./cfg/{dataset}_{idx}", "w") as yaml_file:
+                yaml.dump(defaults, yaml_file, default_flow_style=False)
+
+        if algo == 'DC3':
+            # compare different softweight
+            defaults["dc3_softweight"] = 1
+            defaults["max_iters"] = 300  # always 300
+            defaults["pretrain_epochs"] = 100  # always 100
+            defaults["epochs"] = 200  # always 200
+            idx = 2
+            with open(f"./cfg/{dataset}_{idx}", "w") as yaml_file:
+                yaml.dump(defaults, yaml_file, default_flow_style=False)
+
+            defaults["dc3_softweight"] = 10
+            defaults["max_iters"] = 300  # always 300
+            defaults["pretrain_epochs"] = 100  # always 100
+            defaults["epochs"] = 200  # always 200
+            idx = 4
+            with open(f"./cfg/{dataset}_{idx}", "w") as yaml_file:
+                yaml.dump(defaults, yaml_file, default_flow_style=False)
+
+
 # for dataset in ['case14_ieee', 'case30_ieee', 'case57_ieee', 'case118_ieee', 'case200_activ']:
 #     for algo in ['default', 'POCS', 'LDRPM', 'DC3']:
 #         get_default_args(dataset, algo)
 
 for dataset in ['case14_ieee', 'case30_ieee', 'case57_ieee', 'case118_ieee', 'case200_activ']:
     exps_args(dataset)
+    print(f"Configuration files of dataset {dataset} saved to ./cfg/")
+
+
+for dataset in ['portfolio_optimization']:
+    lhs_exps_args(dataset)
     print(f"Configuration files of dataset {dataset} saved to ./cfg/")
