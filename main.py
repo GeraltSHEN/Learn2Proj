@@ -61,6 +61,9 @@ def complete_args(cfg_file, problem_json, init_args):
     if args.algo == 'LDRPM':
         if args.changing_feature == 'A':
             args.algo = 'LDRPMLHS'
+    if args.algo == 'POCS':
+        if args.changing_feature == 'A':
+            args.algo = 'POCSLHS'
 
     # Assert
 

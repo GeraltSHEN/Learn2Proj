@@ -144,6 +144,8 @@ class Projector(nn.Module):
     def __init__(self, weight, bias=None, bias_transform=None):
         super(Projector, self).__init__()
 
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
         if bias is not None:
             assert bias_transform is None
             self.bias = bias.requires_grad_(False)
@@ -154,11 +156,36 @@ class Projector(nn.Module):
         self.weight = weight.t().requires_grad_(False)
 
     def forward(self, x):
+        if self.weight.dim() == 3:
+            return self.bias + (self.weight @ x.unsqueeze(-1)).squeeze(-1)
         return self.bias + x @ self.weight
 
     def update_bias(self, b):
         with torch.no_grad():
-            self.bias = b @ self.bias_transform
+            if self.bias_transform.dim() == 3:
+                self.bias = (self.bias_transform @ b.unsqueeze(-1)).squeeze(-1)
+            else:
+                self.bias = b @ self.bias_transform
+
+    def update_weight_and_bias_transform(self, A, bsz):
+        A = A.to_dense() if A.is_sparse else A
+        with torch.no_grad():
+            weights = []
+            bias_transforms = []
+            row_size = A.shape[0] // bsz
+            col_size = A.shape[1] // bsz
+            for i in range(bsz):
+                r0, r1 = i * row_size, (i + 1) * row_size
+                c0, c1 = i * col_size, (i + 1) * col_size
+                A_i = A[r0:r1, c0:c1]
+                PD_i = A_i @ A_i.t()
+                chunk_i = A_i.t() @ torch.inverse(PD_i)
+                eq_weight_i = torch.eye(A_i.shape[-1], device=self.device).to(A_i.device) - chunk_i @ A_i
+                eq_bias_transform_i = chunk_i
+                weights.append(eq_weight_i)
+                bias_transforms.append(eq_bias_transform_i)
+            self.weight = torch.stack(weights, dim=0).requires_grad_(False)
+            self.bias_transform = torch.stack(bias_transforms, dim=0).requires_grad_(False)
 
 class POCS(nn.Module):
     def __init__(self, nonnegative_mask, eq_weight, eq_bias_transform):
@@ -336,6 +363,9 @@ class FeasibilityNet(nn.Module):
             self.algo.update_ldr_ref(feature)
         elif self.algo_name == 'LDRPMLHS':
             self.algo.update_ldr_ref(feature)
+        elif self.algo_name == 'POCSLHS':
+            self.algo.eq_projector.update_weight_and_bias_transform(A, bsz=x.shape[0])
+            self.algo.eq_projector.update_bias(b)
         elif self.algo_name == 'DC3LHS':
             x = self.algo.complete(x)
             self.algo.reset_old_x_step()
@@ -369,6 +399,8 @@ class FeasibilityNet(nn.Module):
                 self.iters += 1
                 self.eq_epsilon, self.ineq_epsilon = self.stopping_criterion(x, A, b, nonnegative_mask)
                 break
+            elif self.algo_name == 'POCSLHS':
+                x = self.algo(x)
 
             self.iters += 1
             self.eq_epsilon, self.ineq_epsilon = self.stopping_criterion(x, A, b, nonnegative_mask)

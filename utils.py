@@ -68,6 +68,11 @@ def load_algo(args):
         eq_weight, eq_bias_transform = compute_eq_projector(A_backbone)
         algo = models.POCS(nonnegative_mask=nonnegative_mask.bool(),
                            eq_weight=eq_weight, eq_bias_transform=eq_bias_transform)
+    elif args.algo == 'POCSLHS':
+        eq_weight, eq_bias_transform = compute_eq_projector(A_backbone)
+        algo = models.POCS(nonnegative_mask=nonnegative_mask.bool(),
+                           eq_weight=eq_weight, eq_bias_transform=eq_bias_transform)
+        algo.name = 'POCSLHS'
 
     elif args.algo == 'DC3':
         algo = models.DC3(A=A_backbone, nonnegative_mask=nonnegative_mask,
@@ -381,19 +386,19 @@ def get_ldr_result(args):
             elif args.algo == 'LDRPM':
                 x_LDR = eq_part
 
-            eq_residual = (A_sp @ x_LDR.flatten() - batch.b.flatten()).view(-1, batch.b.shape[-1])
-            ineq_residual = torch.relu(-x_LDR[:, problem.nonnegative_mask])
-            eq_violation = torch.norm(eq_residual, p=2, dim=-1)
-            ineq_violation = torch.norm(ineq_residual, p=2, dim=-1)
-            eq_epsilon = eq_violation / (1 + torch.norm(batch.b, p=2, dim=-1))  # scaled by the norm of b
-            ineq_epsilon = ineq_violation  # no scaling because rhs is 0
-
             iters += 1
 
             predicted_obj = problem.obj_fn(x=x_LDR)
             optimality_gap = problem.optimality_gap(predicted_obj, batch.target).mean()
 
             test_time = time.time() - start_time
+
+            eq_residual = (A_sp @ x_LDR.flatten() - batch.b.flatten()).view(-1, batch.b.shape[-1])
+            ineq_residual = torch.relu(-x_LDR[:, problem.nonnegative_mask])
+            eq_violation = torch.norm(eq_residual, p=2, dim=-1)
+            ineq_violation = torch.norm(ineq_residual, p=2, dim=-1)
+            eq_epsilon = eq_violation / (1 + torch.norm(batch.b, p=2, dim=-1))  # scaled by the norm of b
+            ineq_epsilon = ineq_violation  # no scaling because rhs is 0
 
             gap = float(optimality_gap.mean().detach().cpu())
             gap_worst = float(torch.norm(optimality_gap, float('inf')).detach().cpu())  # max of samples
