@@ -373,7 +373,7 @@ def get_ldr_result(args):
             eq_part = ldr_bias + batch.feature @ ldr_weight
             if args.algo == 'LDRPMLHS':
                 eq_part = ldr_bias + batch.feature @ ldr_weight
-                ones_features = torch.cat((torch.ones(batch.feature.shape[0], 1, device=args.device), batch.feature), dim=1)
+                ones_features = torch.cat((torch.ones(batch.feature.shape[0], 1, device=args.devic), batch.feature), dim=1)
                 ineq_part = torch.einsum('bd,ndm->bnm', ones_features, S_scale)
                 ineq_part = torch.einsum('bnm,bm->bn', ineq_part, ones_features)
                 x_LDR = torch.cat((eq_part, ineq_part), dim=1)
