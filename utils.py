@@ -304,39 +304,47 @@ def get_optimizer(args, model):
 
 
 def get_ldr_result(args):
-    ldr_weight = torch.load(f'./data/{args.dataset}/new_feasibility/ldr_weight.pt').to(args.device).t().requires_grad_(False)
-    ldr_bias = torch.load(f'./data/{args.dataset}/new_feasibility/ldr_bias.pt').to(args.device).requires_grad_(False)
+    problem = load_problem(args)
+    data = load_data(args)
 
-    b_backbone = torch.load(f'./data/{args.dataset}/new_feasibility/b_backbone.pt')
-    A_backbone = torch.load(f'./data/{args.dataset}/new_feasibility/A_backbone.pt')
+    nonnegative_mask = torch.load(f'./data/{args.dataset}/new_feasibility/nonnegative_mask.pt').to(args.device)
+    b_backbone = torch.load(f'./data/{args.dataset}/new_feasibility/b_backbone.pt').to(args.device)
+    A_backbone = torch.load(f'./data/{args.dataset}/new_feasibility/A_backbone.pt').to(args.device)
 
-    if args.changing_feature == 'b':
+    if args.algo == 'LDRPM':
+        ldr_weight = torch.load(f'./data/{args.dataset}/new_feasibility/ldr_weight.pt').to(args.device).t().requires_grad_(False)
+        ldr_bias = torch.load(f'./data/{args.dataset}/new_feasibility/ldr_bias.pt').to(args.device).requires_grad_(False)
+        eq_weight, eq_bias_transform = compute_eq_projector(A_backbone)
+
         b_scale = torch.load(f'./data/{args.dataset}/new_feasibility/b_scale.pt')
         A_scale = None
         b_backbone = None
         A_backbone = torch.load(f'./data/{args.dataset}/new_feasibility/A_backbone.pt')
-    elif args.changing_feature == 'A':
+
+    elif args.algo == 'LDRPMLHS':
+        ldr_weight = torch.load(f'./data/{args.dataset}/new_feasibility/ldr_weight.pt').to(args.device).t().requires_grad_(False)
+        ldr_bias = torch.load(f'./data/{args.dataset}/new_feasibility/ldr_bias.pt').to(args.device).requires_grad_(False)
         S_scale = torch.load(f'./data/{args.dataset}/new_feasibility/S_scale.pt').view(args.feature_num + 1, -1,
                                                                                        args.feature_num + 1).permute(1,
                                                                                                                      0,
-                                                                                                                     2)
+                                                                                                                     2).to(
+            args.device)
+        # A_backbone -> eq backbone
+        Aeq_backbone = A_backbone[:args.eq_constr_num, :(args.var_num - args.x_nneg_num)]
+        beq_backbone = b_backbone[:args.eq_constr_num]
+        hineq_backbone = b_backbone[args.eq_constr_num:]
+        eq_weight, eq_bias_transform = compute_eq_projector(Aeq_backbone)
+        eq_bias = eq_bias_transform @ beq_backbone
 
         b_scale = None
         A_scale = torch.load(f'./data/{args.dataset}/new_feasibility/A_scale.pt')
         b_backbone = torch.load(f'./data/{args.dataset}/new_feasibility/b_backbone.pt')
         A_backbone = None
-    else:
-        raise ValueError('Invalid changing_feature')
 
-    test = load_instances(args, b_scale, A_scale,
-                          b_backbone, A_backbone, 'test')
-
-    if args.problem == "primal_lp":
-        c = torch.load(f'./data/{args.dataset}/new_feasibility/c_backbone.pt').to(args.device)
-        nonnegative_mask = torch.load(f'./data/{args.dataset}/new_feasibility/nonnegative_mask.pt')
-        problem = PrimalLP(c=c, nonnegative_mask=nonnegative_mask)
     else:
-        raise ValueError('Invalid problem')
+        raise ValueError('Invalid algorithm')
+
+    test = load_instances(args, b_scale, A_scale, b_backbone, A_backbone, 'test')
 
     test_stats = {"test_time": 0,
                   "test_gap": 0,
@@ -358,57 +366,28 @@ def get_ldr_result(args):
                                            size=(bsz * args.constr_num, bsz * args.var_num)).to(args.device)
             batch = batch.to(args.device)
 
-            if args.changing_feature == 'A':
-
-                eq_part = ldr_bias + batch.feature @ ldr_weight
-                ones_features = torch.cat((torch.ones(batch.feature.shape[0], 1), batch.feature), dim=1)
-
-                bsz = batch.feature.shape[0]
-                for b in range(bsz):
-                    one_feature = ones_features[b]
-                    ineq_part2 = torch.einsum('d,ndm->nm', one_feature, S_scale)
-                    ineq_part2 = torch.einsum('nm,m->n', ineq_part2, one_feature)
-
-
-
-                feature_num = batch.feature.shape[1] + 1
-                ineq_var_num = args.x_nneg_num
-                ineq_part = torch.zeros((bsz, ineq_var_num))
-                for b in range(bsz):
-                    for i in range(ineq_var_num):
-                        ineq_part[b, i] = ones_features[b, :] @ S_scale[i, :, :] @ ones_features[b, :]
-
-                x_LDR = torch.cat((eq_part, ineq_part), dim=1)
-
-                eq_residual = (A_sp @ x_LDR.flatten() - batch.b.flatten()).view(-1, batch.b.shape[-1])
-                ineq_residual = torch.relu(-x_LDR[:, problem.nonnegative_mask])
-                eq_violation = torch.norm(eq_residual, p=2, dim=-1)
-                ineq_violation = torch.norm(ineq_residual, p=2, dim=-1)
-                eq_epsilon = eq_violation / (1 + torch.norm(batch.b, p=2, dim=-1))  # scaled by the norm of b
-                ineq_epsilon = ineq_violation  # no scaling because rhs is 0
-
-
-
-
-
-
-
-
-
-
-
-
-            else:
-                G = None
+            G = batch.G if hasattr(batch, 'G') else None
+            A_eq = batch.A_eq if hasattr(batch, 'A_eq') else None
 
             iters = 0
-            x_LDR = ldr_bias + batch.feature @ ldr_weight
+            eq_part = ldr_bias + batch.feature @ ldr_weight
+            if args.algo == 'LDRPMLHS':
+                eq_part = ldr_bias + batch.feature @ ldr_weight
+                ones_features = torch.cat((torch.ones(batch.feature.shape[0], 1), batch.feature), dim=1)
+                ineq_part = torch.einsum('bd,ndm->bnm', ones_features, S_scale)
+                ineq_part = torch.einsum('bnm,bm->bn', ineq_part, ones_features)
+                x_LDR = torch.cat((eq_part, ineq_part), dim=1)
+
+            elif args.algo == 'LDRPM':
+                x_LDR = eq_part
+
             eq_residual = (A_sp @ x_LDR.flatten() - batch.b.flatten()).view(-1, batch.b.shape[-1])
             ineq_residual = torch.relu(-x_LDR[:, problem.nonnegative_mask])
             eq_violation = torch.norm(eq_residual, p=2, dim=-1)
             ineq_violation = torch.norm(ineq_residual, p=2, dim=-1)
             eq_epsilon = eq_violation / (1 + torch.norm(batch.b, p=2, dim=-1))  # scaled by the norm of b
             ineq_epsilon = ineq_violation  # no scaling because rhs is 0
+
             iters += 1
 
             predicted_obj = problem.obj_fn(x=x_LDR)
