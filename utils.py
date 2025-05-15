@@ -17,7 +17,20 @@ def load_problem(args):
     if args.problem == "primal_lp":
         c = torch.load(f'./data/{args.dataset}/new_feasibility/c_backbone.pt').to(args.device)
         nonnegative_mask = torch.load(f'./data/{args.dataset}/new_feasibility/nonnegative_mask.pt')
-        problem = PrimalLP(c=c, nonnegative_mask=nonnegative_mask)
+        if args.algo == 'DC3LHS':
+            b_backbone = torch.load(f'./data/{args.dataset}/new_feasibility/b_backbone.pt').to(args.device)
+            A_backbone = torch.load(f'./data/{args.dataset}/new_feasibility/A_backbone.pt').to(args.device)
+            DC3LHS = True
+            A_eq = A_backbone[:args.eq_constr_num, :(args.var_num - args.x_nneg_num)]
+            b_eq = b_backbone[:args.eq_constr_num]
+            h_ineq = b_backbone[args.eq_constr_num:]
+        else:
+            DC3LHS = False
+            A_eq = None
+            b_eq = None
+            h_ineq = None
+        problem = PrimalLP(c=c, nonnegative_mask=nonnegative_mask, DC3LHS=DC3LHS,
+                           A_eq=A_eq, b_eq=b_eq, h_ineq=h_ineq)
     else:
         raise ValueError('Invalid problem')
     return problem
@@ -60,6 +73,12 @@ def load_algo(args):
         algo = models.DC3(A=A_backbone, nonnegative_mask=nonnegative_mask,
                           lr=args.dc3_lr, momentum=args.dc3_momentum,
                           changing_feature=args.changing_feature)
+    elif args.algo == 'DC3LHS':
+        Aeq_backbone = A_backbone[:args.eq_constr_num, :(args.var_num - args.x_nneg_num)]
+        beq_backbone = b_backbone[:args.eq_constr_num]
+        hineq_backbone = b_backbone[args.eq_constr_num:]
+        algo = models.DC3LHS(A=Aeq_backbone, nonnegative_mask=nonnegative_mask, h=hineq_backbone, b=beq_backbone,
+                             lr=args.dc3_lr, momentum=args.dc3_momentum)
 
     elif args.algo == 'LDRPMLHS':
         ldr_weight = torch.load(f'./data/{args.dataset}/new_feasibility/ldr_weight.pt').to(args.device)
@@ -118,6 +137,7 @@ def load_instances(args, b_scale, A_scale, b_backbone, A_backbone, train_val_tes
             A_scale_dense = A_scale.view(args.constr_num, -1, args.var_num)
             A = torch.einsum('d,dmn->mn', feature, A_scale_dense)
             G = A[args.eq_constr_num:, :(args.var_num - args.x_nneg_num)]
+            A_eq = A[:args.eq_constr_num, :(args.var_num - args.x_nneg_num)]
         else:
             raise ValueError('Invalid changing_feature')
 
@@ -133,7 +153,7 @@ def load_instances(args, b_scale, A_scale, b_backbone, A_backbone, train_val_tes
             dataset.append(BasicData(feature=feature[1:], target=target,
                                      b=b, A_indices=A_indices, A_values=A_values,
                                      constr_num=args.constr_num, var_num=args.var_num,
-                                     G=G,
+                                     G=G, A_eq=A_eq,
                                      ineq_constr_num=args.ineq_constr_num))
         else:
             raise ValueError('Invalid changing_feature')
@@ -202,7 +222,7 @@ class BasicData(Data):
             return 1
         if key in ['A_values']:
             return 0
-        if key in ['feature', 'b', 'G']:
+        if key in ['feature', 'b', 'G', 'A_eq']:
             return None
         return super().__cat_dim__(key, value, *args, **kwargs)
 
@@ -236,6 +256,7 @@ class InstanceDataset(torch.utils.data.Dataset):
             A = torch.einsum('i,ijk->jk', feature, A_scale_dense)
 
             G = A[self.args.eq_constr_num:, :(self.args.var_num - self.args.x_nneg_num)]
+            A_eq = A[:self.args.eq_constr_num, :(self.args.var_num - self.args.x_nneg_num)]
         else:
             raise ValueError('Invalid changing_feature')
 
@@ -261,6 +282,7 @@ class InstanceDataset(torch.utils.data.Dataset):
                 constr_num=self.args.constr_num,
                 var_num=self.args.var_num,
                 G=G,
+                A_eq=A_eq,
                 ineq_constr_num=self.args.ineq_constr_num,
             )
         else:

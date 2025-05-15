@@ -56,7 +56,7 @@ def complete_args(cfg_file, problem_json, init_args):
         if args.changing_feature == 'b':
             args.out_dim = args.var_num - args.constr_num
         if args.changing_feature == 'A':
-            args.out_dim = args.var_num - args.eq_constr_num
+            args.out_dim = args.var_num - args.x_nneg_num - args.eq_constr_num
             args.algo = 'DC3LHS'
     if args.algo == 'LDRPM':
         if args.changing_feature == 'A':

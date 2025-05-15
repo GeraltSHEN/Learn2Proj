@@ -202,7 +202,7 @@ class LDRPM(nn.Module):
 
 
 class DC3LHS(nn.Module):
-    def __init__(self, A, h, b, lr, momentum):
+    def __init__(self, A, nonnegative_mask, h, b, lr, momentum):
         super(DC3LHS, self).__init__()
         self.name = 'DC3LHS'
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -210,8 +210,10 @@ class DC3LHS(nn.Module):
         self.momentum = momentum
         self.old_x_step = 0
 
+        self.nonnegative_mask = nonnegative_mask.bool()
+        self.var_num = nonnegative_mask.shape[0]
         A_cpu = (A.to_dense() if A.is_sparse else A).cpu()
-        self.constr_num, self.var_num = A_cpu.shape
+        self.eq_constr_num, self.eq_var_num = A_cpu.shape
         self.register_buffer('h', h)
         self.register_buffer('b', b)
 
@@ -236,60 +238,20 @@ class DC3LHS(nn.Module):
 
     def complete(self, x):
         bsz = x.shape[0]
-        complete_x = torch.zeros(bsz, self.var_num, device=self.device)
+        complete_x = torch.zeros(bsz, self.eq_var_num, device=self.device)
         complete_x[:, self._partial_vars] = x
         complete_x[:, self._other_vars] = (self.b - x @ self._A_partial.T) @ self._A_other_inv.T
         return complete_x
 
     def ineq_partial_grad(self, x, G):
         bsz = x.shape[0]
-        ineq_num = self.h.numel()
-        var_num = self.var_num
-
-        G_4d = G_blk.view(bsz, ineq_num, bsz, var_num)
-        idx = torch.arange(bsz, device=device)
-        G = G_4d[idx, :, idx, :]
-        G_p, G_o = G[..., self._partial_vars], G[..., self._other_vars]
-
-        # ------------------------------------------------------------------
-        # 2. Build the “effective” G that eliminates x_other
-        # ------------------------------------------------------------------
-        C = self._A_other_inv @ self._A_partial  # (|other|, |partial|)
-        G_eff = G_p - torch.matmul(G_o, C)  # (bsz, ineq, |partial|)
-
-        # ------------------------------------------------------------------
-        # 3. Build the effective right-hand side h̃ = h − (b Aₒ⁻¹) Gᵒᵀ
-        # ------------------------------------------------------------------
-        b_eff = torch.matmul(self.b, self._A_other_inv.T)  # (bsz, |other|)
-        term = torch.bmm(b_eff.unsqueeze(1),  # (bsz,1,|other|)
-                         G_o.transpose(1, 2))  # (bsz,|other|,ineq)
-        h_eff = self.h.to(device).unsqueeze(0) - term.squeeze(1)  # (bsz, ineq)
-
-        # ------------------------------------------------------------------
-        # 4. Positive-part residuals r⁺ = max(0, x_p G_effᵀ − h̃)
-        # ------------------------------------------------------------------
-        x_p = x[:, p_idx]  # (bsz, |partial|)
-        res = torch.bmm(x_p.unsqueeze(1),  # (bsz,1,|partial|)
-                        G_eff.transpose(1, 2)).squeeze(1) - h_eff
-        r_pos = torch.clamp(res, min=0.)  # (bsz, ineq)
-
-        # ------------------------------------------------------------------
-        # 5. Gradient wrt x_partial: 2 r⁺ G_eff
-        # ------------------------------------------------------------------
-        g_p = 2.0 * torch.bmm(r_pos.unsqueeze(1), G_eff).squeeze(1)  # (bsz, |partial|)
-
-        # ------------------------------------------------------------------
-        # 6. Back-propagate to “other” variables via the elimination rule
-        # ------------------------------------------------------------------
-        g_o = -torch.matmul(torch.matmul(g_p, self._A_partial.T), self._A_other_inv.T)  # (bsz, |other|)
-
-        # ------------------------------------------------------------------
-        # 7. Assemble full gradient
-        # ------------------------------------------------------------------
-        grad_full = torch.zeros(bsz, var_num, device=device)
-        grad_full[:, p_idx] = g_p
-        grad_full[:, o_idx] = g_o
-        return grad_full
+        G_effective = G[:, :, self._partial_vars] - G[:, :, self._other_vars] @ (self._A_other_inv @ self._A_partial)
+        h_effective = self.h - (self.b @ self._A_other_inv.T) @ G[:, :, self._other_vars].mT
+        grad = 2 * G_effective.mT @ torch.clamp((G_effective @ x[:, self._partial_vars].unsqueeze(-1)).squeeze(-1) - h_effective, 0).unsqueeze(-1)
+        x = torch.zeros(bsz, self.eq_var_num, device=self.device)
+        x[:, self._partial_vars] = grad.squeeze(-1)
+        x[:, self._other_vars] = - (grad.squeeze(-1) @ self._A_partial.T) @ self._A_other_inv.T
+        return x
 
     def forward(self, x, G):
         x_step = self.ineq_partial_grad(x, G)
@@ -348,33 +310,6 @@ class LDRPMLHS(nn.Module):
         return x_star
 
 
-        # x_eq_partial = x_eq[:, ~self.nonnegative_mask.bool()]
-        # x_LDR_partial = x_LDR[:, ~self.nonnegative_mask.bool()]
-        #
-        # s = (G @ (x_LDR_partial - x_eq_partial).unsqueeze(-1)).squeeze(-1).clamp_min(torch.finfo(x_eq.dtype).eps)
-        # alphas = (self.h - (G @ x_eq_partial.unsqueeze(-1)).squeeze(-1)) / s
-        #
-        # mask = (G @ x_eq_partial.unsqueeze(-1)).squeeze(-1) < self.h
-        #
-        # masked_alphas = alphas * mask
-        # alpha = torch.max(masked_alphas, dim=-1).values
-        #
-        # self.alpha = alpha
-        #
-        # x_star_partial = x_LDR_partial * alpha.unsqueeze(-1) + x_eq_partial * (1.0 - alpha).unsqueeze(-1)
-        # x_eq[:, ~self.nonnegative_mask.bool()] = x_star_partial
-        # return x_eq
-
-
-
-
-
-
-
-
-
-
-
 class FeasibilityNet(nn.Module):
     def __init__(self, algo, eq_tol, ineq_tol, max_iters, changing_feature):
         super(FeasibilityNet, self).__init__()
@@ -389,12 +324,9 @@ class FeasibilityNet(nn.Module):
         self.ineq_epsilon = None
         self.iters = 0
 
-    def forward(self, x, A, b, nonnegative_mask, feature, G):
+    def forward(self, x, A, b, nonnegative_mask, feature, G, A_eq):
         if self.algo_name == 'DC3':
             x = self.algo.complete(x, b)  # complete
-            self.algo.reset_old_x_step()
-        elif self.algo_name == 'DC3LHS':
-            x = self.algo.complete(x)
             self.algo.reset_old_x_step()
         elif self.algo_name == 'POCS':
             self.algo.eq_projector.update_bias(b)
@@ -403,20 +335,27 @@ class FeasibilityNet(nn.Module):
             self.algo.update_ldr_ref(feature)
         elif self.algo_name == 'LDRPMLHS':
             self.algo.update_ldr_ref(feature)
+        elif self.algo_name == 'DC3LHS':
+            x = self.algo.complete(x)
+            self.algo.reset_old_x_step()
+
+            self.iters = 0
+            self.eq_epsilon, self.ineq_epsilon = self.stopping_criterionDC3LHSONLY(x, A_eq, G)
+            while ((self.eq_epsilon.mean() > self.eq_tol or self.ineq_epsilon.mean() > self.ineq_tol)
+                   and self.iters < self.max_iters):
+                x = self.algo(x, G)
+                self.iters += 1
+                self.eq_epsilon, self.ineq_epsilon = self.stopping_criterionDC3LHSONLY(x, A_eq, G)
+            return x
 
         self.iters = 0
-
-        eq_residual = (A @ self.algo.x_LDR.flatten() - b.flatten()).view(-1, b.shape[-1])
-        ineq_residual = torch.relu(-self.algo.x_LDR[:, nonnegative_mask])
-
         self.eq_epsilon, self.ineq_epsilon = self.stopping_criterion(x, A, b, nonnegative_mask)
+
         while ((self.eq_epsilon.mean() > self.eq_tol or self.ineq_epsilon.mean() > self.ineq_tol)
                and self.iters < self.max_iters):
 
             if self.algo_name == 'DC3':
                 x = self.algo(x, b, None)
-            elif self.algo_name == 'DC3LHS':
-                x = self.algo(x, G)
             elif self.algo_name == 'POCS':
                 x = self.algo(x)
             elif self.algo_name == 'LDRPM':
@@ -432,7 +371,6 @@ class FeasibilityNet(nn.Module):
 
             self.iters += 1
             self.eq_epsilon, self.ineq_epsilon = self.stopping_criterion(x, A, b, nonnegative_mask)
-            #print(f'iter: {self.iters}, eq_epsilon: {self.eq_epsilon.mean()}, ineq_epsilon: {self.ineq_epsilon.mean()}')
         return x
 
     @staticmethod
@@ -446,4 +384,16 @@ class FeasibilityNet(nn.Module):
 
             eq_epsilon = eq_violation / (1 + torch.norm(b, p=2, dim=-1))  # scaled by the norm of b
             ineq_epsilon = ineq_violation  # no scaling because rhs is 0
+            return eq_epsilon, ineq_epsilon
+
+    def stopping_criterionDC3LHSONLY(self, x, A_eq, G_ineq):
+        with torch.no_grad():
+            eq_residual = (A_eq @ x.unsqueeze(-1)).squeeze(-1) - self.algo.b
+            ineq_residual = torch.relu((G_ineq @ x.unsqueeze(-1)).squeeze(-1) - self.algo.h)
+
+            eq_violation = torch.norm(eq_residual, p=2, dim=-1)
+            ineq_violation = torch.norm(ineq_residual, p=2, dim=-1)
+
+            eq_epsilon = eq_violation / (1 + torch.norm(self.algo.b, p=2, dim=-1))  # scaled by the norm of b
+            ineq_epsilon = ineq_violation / (1 + torch.norm(self.algo.h, p=2, dim=-1))
             return eq_epsilon, ineq_epsilon

@@ -127,7 +127,6 @@ def featurize_batch(args, batch):
         A_sp = torch.sparse_coo_tensor(indices=batch.A_indices,
                                         values=batch.A_values,
                                         size=(bsz * args.constr_num, bsz * args.var_num)).to(args.device)
-
         batch = batch.to(args.device)
         return batch, A_sp
 
@@ -161,9 +160,12 @@ def get_loss(model, feasibility_net, batch, problem, args, loss_type):
     if args.problem == 'primal_lp':
         x = model(batch.feature)
 
+        G = batch.G if hasattr(batch, 'G') else None
+        A_eq = batch.A_eq if hasattr(batch, 'A_eq') else None
+
         x_feas = feasibility_net(x=x, A=A_sp, b=batch.b,
                                  nonnegative_mask=problem.nonnegative_mask, feature=batch.feature,
-                                 G=batch.G)
+                                 G=G, A_eq=A_eq)
     else:
         raise ValueError('Invalid problem')
 
@@ -171,9 +173,9 @@ def get_loss(model, feasibility_net, batch, problem, args, loss_type):
 
     if loss_type == 'obj':
 
-        if args.algo in ['DC3', 'POCS']:
+        if args.algo in ['DC3', 'POCS', 'DC3LHS']:
             eq_residual = problem.eq_residual(x_feas, A_sp, batch.b)
-            ineq_residual = problem.ineq_residual(x_feas)
+            ineq_residual = problem.ineq_residual(x_feas, G)
             eq_violation = torch.norm(eq_residual, p=2, dim=-1)
             ineq_violation = torch.norm(ineq_residual, p=2, dim=-1)
             return (predicted_obj +
@@ -186,7 +188,7 @@ def get_loss(model, feasibility_net, batch, problem, args, loss_type):
         return problem.optimality_gap(predicted_obj, batch.target).mean()
 
     elif loss_type == 'mse':
-        assert args.algo == 'LDRPM'
+        assert args.algo == 'LDRPM' or 'LDRPMLHS'
         return F.mse_loss(x, feasibility_net.algo.x_LDR)
 
     else:
