@@ -74,7 +74,7 @@ def Learning(args, data, problem, model, feasibility_net, optimizer):
         model.train()
         feasibility_net.train()
         train_model(optimizer, model, feasibility_net, args, data, problem, epoch_stats)
-        if epoch % 10 == 0 and args.algo == 'LDRPM':
+        if epoch % 1 == 0 and 'LDRPM' in args.algo:
             print(f'epoch {epoch},  alpha: {feasibility_net.algo.alpha.mean()}')
         curr_loss = epoch_stats['train_loss'] / epoch_stats['train_agg']
         # log_cpu_memory_usage(epoch, 'training')
@@ -127,6 +127,7 @@ def featurize_batch(args, batch):
         A_sp = torch.sparse_coo_tensor(indices=batch.A_indices,
                                         values=batch.A_values,
                                         size=(bsz * args.constr_num, bsz * args.var_num)).to(args.device)
+
         batch = batch.to(args.device)
         return batch, A_sp
 
@@ -155,22 +156,14 @@ def optimizer_step(model, feasibility_net, optimizer, batch, args, problem, epoc
 
 
 def get_loss(model, feasibility_net, batch, problem, args, loss_type):
-    #torch.cuda.reset_peak_memory_stats(args.device)
-
     batch, A_sp = featurize_batch(args, batch)
-
-    # Log memory usage before forward pass
-    #print(f"Step {args.epoch}: Before forward pass: {torch.cuda.memory_allocated(args.device) / 1e6:.2f} MB")
 
     if args.problem == 'primal_lp':
         x = model(batch.feature)
 
-        #print(f"Step {args.epoch}: After forward pass of model: {torch.cuda.memory_allocated(args.device) / 1e6:.2f} MB")
-
-        x_feas = feasibility_net(x=x, A=A_sp, b=batch.b, nonnegative_mask=problem.nonnegative_mask, feature=batch.feature)
-
-        #print(f"Step {args.epoch}: After forward pass of feasnet: {torch.cuda.memory_allocated(args.device) / 1e6:.2f} MB")
-
+        x_feas = feasibility_net(x=x, A=A_sp, b=batch.b,
+                                 nonnegative_mask=problem.nonnegative_mask, feature=batch.feature,
+                                 G=batch.G)
     else:
         raise ValueError('Invalid problem')
 

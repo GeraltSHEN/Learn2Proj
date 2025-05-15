@@ -11,8 +11,8 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 def add_arguments():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--cfg_idx", help="config index", type=int, default=9)
-    parser.add_argument("--dataset", default="case200_activ")
+    parser.add_argument("--cfg_idx", help="config index", type=int, default=0)
+    parser.add_argument("--dataset", default="portfolio_optimization")
     parser.add_argument("--problem", help="primal_lp", default="primal_lp")
     parser.add_argument("--job", default="training", type=str)
 
@@ -55,8 +55,12 @@ def complete_args(cfg_file, problem_json, init_args):
     if args.algo == 'DC3':
         if args.changing_feature == 'b':
             args.out_dim = args.var_num - args.constr_num
-        elif args.changing_feature == 'A':
-            raise NotImplementedError
+        if args.changing_feature == 'A':
+            args.out_dim = args.var_num - args.eq_constr_num
+            args.algo = 'DC3LHS'
+    if args.algo == 'LDRPM':
+        if args.changing_feature == 'A':
+            args.algo = 'LDRPMLHS'
 
     # Assert
 

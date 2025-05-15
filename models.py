@@ -111,15 +111,6 @@ class DC3(nn.Module):
     def reset_old_x_step(self):
         self.old_x_step = 0
 
-    def update_bh(self, b):
-        if self.changing_feature == 'A':
-            self.b = b[:, self.constr_num]
-            self.h = b[:, self.constr_num:]
-
-    def update_G(self, A):
-        if self.changing_feature == 'A':
-            A = A.to_dense()
-
     def complete(self, x, b):
         bsz = x.shape[0]
         complete_x = torch.zeros(bsz, self.var_num, device=self.device)
@@ -211,31 +202,20 @@ class LDRPM(nn.Module):
 
 
 class DC3LHS(nn.Module):
-    def __init__(self, A, h, lr, momentum):
+    def __init__(self, A, h, b, lr, momentum):
         super(DC3LHS, self).__init__()
         self.name = 'DC3LHS'
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.lr = lr
         self.momentum = momentum
         self.old_x_step = 0
-        self.changing_feature = changing_feature
 
         A_cpu = (A.to_dense() if A.is_sparse else A).cpu()
         self.constr_num, self.var_num = A_cpu.shape
+        self.register_buffer('h', h)
+        self.register_buffer('b', b)
 
-        if changing_feature == 'b':
-            cols = nonnegative_mask.nonzero(as_tuple=True)[0]
-            rows = torch.arange(len(cols), device=self.device)
-            G = torch.zeros((len(rows), self.var_num), device=self.device)
-            G[rows, cols] = 1.0
-            self.register_buffer('G', G)
-            self.register_buffer('h', torch.tensor(0., device=self.device))
-        elif changing_feature == 'A':
-            raise NotImplementedError
-        else:
-            raise ValueError("Invalid changing feature. Must be 'b' or 'A'.")
-
-        with torch.no_grad():  # no autograd needed
+        with torch.no_grad():
             Q, R, P = qr(A_cpu.numpy(), pivoting=True)
         P = torch.from_numpy(P).to(self.device)
 
@@ -250,83 +230,140 @@ class DC3LHS(nn.Module):
         self.register_buffer('_A_other_inv', torch.inverse(A_other))
         self.register_buffer('_A_partial', A_partial)
 
-        G_effective = G[:, self._partial_vars] - G[:, self._other_vars] @ (self._A_other_inv @ self._A_partial)
-        self.register_buffer('_G_effective', G_effective)
-        G_other_t = G[:, self._other_vars].T
-        self.register_buffer('_G_other_t', G_other_t)
-
 
     def reset_old_x_step(self):
         self.old_x_step = 0
 
-    def update_bh(self, b):
-        if self.changing_feature == 'A':
-            self.b = b[:, self.constr_num]
-            self.h = b[:, self.constr_num:]
-
-    def update_G(self, A):
-        if self.changing_feature == 'A':
-            A = A.to_dense()
-
-    def complete(self, x, b):
+    def complete(self, x):
         bsz = x.shape[0]
         complete_x = torch.zeros(bsz, self.var_num, device=self.device)
         complete_x[:, self._partial_vars] = x
-        if self.changing_feature == 'A':
-            b = self.b
-        complete_x[:, self._other_vars] = (b - x @ self._A_partial.T) @ self._A_other_inv.T
+        complete_x[:, self._other_vars] = (self.b - x @ self._A_partial.T) @ self._A_other_inv.T
         return complete_x
 
-    def ineq_partial_grad(self, x, b, G):
+    def ineq_partial_grad(self, x, G):
         bsz = x.shape[0]
-        if self.changing_feature == 'b':
-            G = self.G
-            G_effective = self._G_effective
-            G_other_t = self._G_other_t
-        h_effective = self.h - (b @ self._A_other_inv.T) @ G_other_t
-        grad = 2 * torch.clamp(x[:, self._partial_vars] @ G_effective.T - h_effective, 0) @ G_effective
-        x = torch.zeros(bsz, self.var_num, device=self.device)
-        x[:, self._partial_vars] = grad
-        x[:, self._other_vars] = - (grad @ self._A_partial.T) @ self._A_other_inv.T
-        return x
+        ineq_num = self.h.numel()
+        var_num = self.var_num
 
-    def forward(self, x, b, G_old):
-        x_step = self.ineq_partial_grad(x, b, G_old)
+        G_4d = G_blk.view(bsz, ineq_num, bsz, var_num)
+        idx = torch.arange(bsz, device=device)
+        G = G_4d[idx, :, idx, :]
+        G_p, G_o = G[..., self._partial_vars], G[..., self._other_vars]
+
+        # ------------------------------------------------------------------
+        # 2. Build the “effective” G that eliminates x_other
+        # ------------------------------------------------------------------
+        C = self._A_other_inv @ self._A_partial  # (|other|, |partial|)
+        G_eff = G_p - torch.matmul(G_o, C)  # (bsz, ineq, |partial|)
+
+        # ------------------------------------------------------------------
+        # 3. Build the effective right-hand side h̃ = h − (b Aₒ⁻¹) Gᵒᵀ
+        # ------------------------------------------------------------------
+        b_eff = torch.matmul(self.b, self._A_other_inv.T)  # (bsz, |other|)
+        term = torch.bmm(b_eff.unsqueeze(1),  # (bsz,1,|other|)
+                         G_o.transpose(1, 2))  # (bsz,|other|,ineq)
+        h_eff = self.h.to(device).unsqueeze(0) - term.squeeze(1)  # (bsz, ineq)
+
+        # ------------------------------------------------------------------
+        # 4. Positive-part residuals r⁺ = max(0, x_p G_effᵀ − h̃)
+        # ------------------------------------------------------------------
+        x_p = x[:, p_idx]  # (bsz, |partial|)
+        res = torch.bmm(x_p.unsqueeze(1),  # (bsz,1,|partial|)
+                        G_eff.transpose(1, 2)).squeeze(1) - h_eff
+        r_pos = torch.clamp(res, min=0.)  # (bsz, ineq)
+
+        # ------------------------------------------------------------------
+        # 5. Gradient wrt x_partial: 2 r⁺ G_eff
+        # ------------------------------------------------------------------
+        g_p = 2.0 * torch.bmm(r_pos.unsqueeze(1), G_eff).squeeze(1)  # (bsz, |partial|)
+
+        # ------------------------------------------------------------------
+        # 6. Back-propagate to “other” variables via the elimination rule
+        # ------------------------------------------------------------------
+        g_o = -torch.matmul(torch.matmul(g_p, self._A_partial.T), self._A_other_inv.T)  # (bsz, |other|)
+
+        # ------------------------------------------------------------------
+        # 7. Assemble full gradient
+        # ------------------------------------------------------------------
+        grad_full = torch.zeros(bsz, var_num, device=device)
+        grad_full[:, p_idx] = g_p
+        grad_full[:, o_idx] = g_o
+        return grad_full
+
+    def forward(self, x, G):
+        x_step = self.ineq_partial_grad(x, G)
         new_x_step = self.lr * x_step + self.momentum * self.old_x_step
         x = x - new_x_step
         self.old_x_step = new_x_step
         return x
 
 
-
-
 class LDRPMLHS(nn.Module):
-    def __init__(self, h, eq_weight, eq_bias_transform, ldr_weight, ldr_bias):
+    def __init__(self, h, eq_weight, eq_bias, ldr_weight, ldr_bias, S_scale, nonnegative_mask):
+        # todo: remember to pass in h and G as -h and -G
         super(LDRPMLHS, self).__init__()
         self.name = 'LDRPMLHS'
         self.register_buffer('h', h)
-        self.eq_projector = Projector(weight=eq_weight, bias_transform=eq_bias_transform)
+        self.eq_projector = Projector(weight=eq_weight, bias=eq_bias)
         self.ldr_projector = Projector(weight=ldr_weight, bias=ldr_bias)
+
+        self.ldr_bias = ldr_bias.requires_grad_(False)
+        self.ldr_weight = ldr_weight.t().requires_grad_(False)
+        self.S_scale = S_scale.requires_grad_(False)
+        self.nonnegative_mask = nonnegative_mask
+
         self.x_LDR = ldr_bias
+
 
     def update_ldr_ref(self, features):
         with torch.no_grad():
-            self.x_LDR = self.ldr_projector(features)
+            eq_part = self.ldr_bias + features @ self.ldr_weight
+            ones_features = torch.cat((torch.ones(features.shape[0], 1), features), dim=1)
+            ineq_part = torch.einsum('bd,ndm->bnm', ones_features, self.S_scale)
+            ineq_part = torch.einsum('bnm,bm->bn', ineq_part, ones_features)
+            self.x_LDR = torch.cat((eq_part, ineq_part), dim=1)
 
     def forward(self, x, G):
-        x_eq = self.eq_projector(x)
-        s = ((self.x_LDR - x_eq) @ G.T).clamp_min(torch.finfo(x_eq.dtype).eps)
-        alphas = (self.h - x_eq @ G.T) / s
-        mask = x_eq @ G.T - self.h < 0
+        bsz = x.shape[0]
+
+        y = x[:, ~self.nonnegative_mask.bool()]
+        y_eq = self.eq_projector(y)
+        s_eq = self.h - (G @ y_eq.unsqueeze(-1)).squeeze(-1)
+
+        y_LDR = self.x_LDR[:, ~self.nonnegative_mask.bool()]
+        s_LDR = self.x_LDR[:, self.nonnegative_mask.bool()]
+        s = (s_LDR - s_eq).clamp_min(torch.finfo(x.dtype).eps)
+        alphas = -s_eq / s
+
+        mask = s_eq < 0
         masked_alphas = alphas * mask
         alpha = torch.max(masked_alphas, dim=-1).values
 
         self.alpha = alpha
 
-        x_star = self.x_LDR * alpha.unsqueeze(-1) + x_eq * (1.0 - alpha).unsqueeze(-1)
+        y_star = self.x_LDR[:, ~self.nonnegative_mask.bool()] * alpha.unsqueeze(-1) + y_eq * (1.0 - alpha).unsqueeze(-1)
+        s_star = s_LDR * alpha.unsqueeze(-1) + s_eq * (1.0 - alpha).unsqueeze(-1)
+        x_star = torch.cat([y_star, s_star], dim=1)
         return x_star
 
 
+        # x_eq_partial = x_eq[:, ~self.nonnegative_mask.bool()]
+        # x_LDR_partial = x_LDR[:, ~self.nonnegative_mask.bool()]
+        #
+        # s = (G @ (x_LDR_partial - x_eq_partial).unsqueeze(-1)).squeeze(-1).clamp_min(torch.finfo(x_eq.dtype).eps)
+        # alphas = (self.h - (G @ x_eq_partial.unsqueeze(-1)).squeeze(-1)) / s
+        #
+        # mask = (G @ x_eq_partial.unsqueeze(-1)).squeeze(-1) < self.h
+        #
+        # masked_alphas = alphas * mask
+        # alpha = torch.max(masked_alphas, dim=-1).values
+        #
+        # self.alpha = alpha
+        #
+        # x_star_partial = x_LDR_partial * alpha.unsqueeze(-1) + x_eq_partial * (1.0 - alpha).unsqueeze(-1)
+        # x_eq[:, ~self.nonnegative_mask.bool()] = x_star_partial
+        # return x_eq
 
 
 
@@ -352,29 +389,43 @@ class FeasibilityNet(nn.Module):
         self.ineq_epsilon = None
         self.iters = 0
 
-    def forward(self, x, A, b, nonnegative_mask, feature):
+    def forward(self, x, A, b, nonnegative_mask, feature, G):
         if self.algo_name == 'DC3':
-            if self.changing_feature == 'b':
-                x = self.algo.complete(x, b)  # complete
+            x = self.algo.complete(x, b)  # complete
+            self.algo.reset_old_x_step()
+        elif self.algo_name == 'DC3LHS':
+            x = self.algo.complete(x)
             self.algo.reset_old_x_step()
         elif self.algo_name == 'POCS':
             self.algo.eq_projector.update_bias(b)
         elif self.algo_name == 'LDRPM':
             self.algo.eq_projector.update_bias(b)
             self.algo.update_ldr_ref(feature)
+        elif self.algo_name == 'LDRPMLHS':
+            self.algo.update_ldr_ref(feature)
 
         self.iters = 0
+
+        eq_residual = (A @ self.algo.x_LDR.flatten() - b.flatten()).view(-1, b.shape[-1])
+        ineq_residual = torch.relu(-self.algo.x_LDR[:, nonnegative_mask])
 
         self.eq_epsilon, self.ineq_epsilon = self.stopping_criterion(x, A, b, nonnegative_mask)
         while ((self.eq_epsilon.mean() > self.eq_tol or self.ineq_epsilon.mean() > self.ineq_tol)
                and self.iters < self.max_iters):
 
             if self.algo_name == 'DC3':
-                x = self.algo(x, b, None)  # placeholder for G_old
+                x = self.algo(x, b, None)
+            elif self.algo_name == 'DC3LHS':
+                x = self.algo(x, G)
             elif self.algo_name == 'POCS':
                 x = self.algo(x)
             elif self.algo_name == 'LDRPM':
                 x = self.algo(x)
+                self.iters += 1
+                self.eq_epsilon, self.ineq_epsilon = self.stopping_criterion(x, A, b, nonnegative_mask)
+                break
+            elif self.algo_name == 'LDRPMLHS':
+                x = self.algo(x, G)
                 self.iters += 1
                 self.eq_epsilon, self.ineq_epsilon = self.stopping_criterion(x, A, b, nonnegative_mask)
                 break
@@ -396,11 +447,3 @@ class FeasibilityNet(nn.Module):
             eq_epsilon = eq_violation / (1 + torch.norm(b, p=2, dim=-1))  # scaled by the norm of b
             ineq_epsilon = ineq_violation  # no scaling because rhs is 0
             return eq_epsilon, ineq_epsilon
-
-
-
-
-
-
-
-

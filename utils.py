@@ -61,9 +61,23 @@ def load_algo(args):
                           lr=args.dc3_lr, momentum=args.dc3_momentum,
                           changing_feature=args.changing_feature)
 
-    # elif args.algo == 'OPTNET':
-    #     algo = models.OPTNET(nonnegative_mask=nonnegative_mask,
-    #                          constr_num=args.constr_num, var_num=args.var_num)
+    elif args.algo == 'LDRPMLHS':
+        ldr_weight = torch.load(f'./data/{args.dataset}/new_feasibility/ldr_weight.pt').to(args.device)
+        ldr_bias = torch.load(f'./data/{args.dataset}/new_feasibility/ldr_bias.pt').to(args.device)
+        S_scale = torch.load(f'./data/{args.dataset}/new_feasibility/S_scale.pt').view(args.feature_num + 1, -1,
+                                                                                       args.feature_num + 1).permute(1,
+                                                                                                                     0,
+                                                                                                                     2).to(args.device)
+        # A_backbone -> eq backbone
+        Aeq_backbone = A_backbone[:args.eq_constr_num, :(args.var_num - args.x_nneg_num)]
+        beq_backbone = b_backbone[:args.eq_constr_num]
+        hineq_backbone = b_backbone[args.eq_constr_num:]
+        eq_weight, eq_bias_transform = compute_eq_projector(Aeq_backbone)
+        eq_bias = eq_bias_transform @ beq_backbone
+
+        algo = models.LDRPMLHS(h=hineq_backbone,
+                               eq_weight=eq_weight, eq_bias=eq_bias, ldr_weight=ldr_weight, ldr_bias=ldr_bias,
+                               S_scale=S_scale, nonnegative_mask=nonnegative_mask)
 
     else:
         raise ValueError(f"Invalid algorithm: {args.algo}")
@@ -100,18 +114,29 @@ def load_instances(args, b_scale, A_scale, b_backbone, A_backbone, train_val_tes
             b = b_scale @ feature
             A = A_backbone.clone().detach()
         elif args.changing_feature == 'A':
-            b = b_backbone.clone().detach()
-            broadcast = torch.cat([f * torch.eye(args.var_num) for f in feature], dim=0)
-            A = torch.sparse.mm(A_scale, broadcast)
+            b = b_backbone
+            A_scale_dense = A_scale.view(args.constr_num, -1, args.var_num)
+            A = torch.einsum('d,dmn->mn', feature, A_scale_dense)
+            G = A[args.eq_constr_num:, :(args.var_num - args.x_nneg_num)]
         else:
             raise ValueError('Invalid changing_feature')
 
         A_sparse = A.to_sparse() if not A.is_sparse else A
         A_indices = A_sparse.indices()
         A_values = A_sparse.values()
-        dataset.append(BasicData(feature=feature[1:], target=target,
-                                 b=b, A_indices=A_indices, A_values=A_values,
-                                 constr_num=args.constr_num, var_num=args.var_num))
+
+        if args.changing_feature == 'b':
+            dataset.append(BasicData(feature=feature[1:], target=target,
+                                     b=b, A_indices=A_indices, A_values=A_values,
+                                     constr_num=args.constr_num, var_num=args.var_num))
+        elif args.changing_feature == 'A':
+            dataset.append(BasicData(feature=feature[1:], target=target,
+                                     b=b, A_indices=A_indices, A_values=A_values,
+                                     constr_num=args.constr_num, var_num=args.var_num,
+                                     G=G,
+                                     ineq_constr_num=args.ineq_constr_num))
+        else:
+            raise ValueError('Invalid changing_feature')
 
     if train_val_test == 'train':
         bsz = args.batch_size
@@ -177,7 +202,7 @@ class BasicData(Data):
             return 1
         if key in ['A_values']:
             return 0
-        if key in ['feature', 'b']:
+        if key in ['feature', 'b', 'G']:
             return None
         return super().__cat_dim__(key, value, *args, **kwargs)
 
@@ -205,22 +230,41 @@ class InstanceDataset(torch.utils.data.Dataset):
         if self.args.changing_feature == "b":
             b = self.b_scale @ feature
             A = self.A_backbone
-        # else:   # changing A
-        #     b = self.b_backbone
-        #     broadcast = torch.cat([f * torch.eye(self.args.var_num, device=b.device) for f in feature], 0)
-        #     A = torch.sparse.mm(self.A_scale, broadcast)
+        elif self.args.changing_feature == "A":
+            b = self.b_backbone
+            A_scale_dense = self.A_scale.view(self.args.constr_num, -1, self.args.var_num)
+            A = torch.einsum('i,ijk->jk', feature, A_scale_dense)
+
+            G = A[self.args.eq_constr_num:, :(self.args.var_num - self.args.x_nneg_num)]
+        else:
+            raise ValueError('Invalid changing_feature')
 
         A = A.to_sparse() if not A.is_sparse else A
 
-        return BasicData(
-            feature    = feature[1:],
-            target     = torch.zeros(1),
-            b          = b,
-            A_indices  = A.indices(),
-            A_values   = A.values(),
-            constr_num = self.args.constr_num,
-            var_num    = self.args.var_num,
-        )
+        if self.args.changing_feature == "b":
+            return BasicData(
+                feature=feature[1:],
+                target=torch.zeros(1),
+                b=b,
+                A_indices=A.indices(),
+                A_values=A.values(),
+                constr_num=self.args.constr_num,
+                var_num=self.args.var_num,
+            )
+        elif self.args.changing_feature == "A":
+            return BasicData(
+                feature=feature[1:],
+                target=torch.zeros(1),
+                b=b,
+                A_indices=A.indices(),
+                A_values=A.values(),
+                constr_num=self.args.constr_num,
+                var_num=self.args.var_num,
+                G=G,
+                ineq_constr_num=self.args.ineq_constr_num,
+            )
+        else:
+            raise ValueError('Invalid changing_feature')
 
     def refresh(self):
         self._seed = torch.seed()
@@ -250,6 +294,11 @@ def get_ldr_result(args):
         b_backbone = None
         A_backbone = torch.load(f'./data/{args.dataset}/new_feasibility/A_backbone.pt')
     elif args.changing_feature == 'A':
+        S_scale = torch.load(f'./data/{args.dataset}/new_feasibility/S_scale.pt').view(args.feature_num + 1, -1,
+                                                                                       args.feature_num + 1).permute(1,
+                                                                                                                     0,
+                                                                                                                     2)
+
         b_scale = None
         A_scale = torch.load(f'./data/{args.dataset}/new_feasibility/A_scale.pt')
         b_backbone = torch.load(f'./data/{args.dataset}/new_feasibility/b_backbone.pt')
@@ -286,6 +335,49 @@ def get_ldr_result(args):
                                            values=batch.A_values,
                                            size=(bsz * args.constr_num, bsz * args.var_num)).to(args.device)
             batch = batch.to(args.device)
+
+            if args.changing_feature == 'A':
+
+                eq_part = ldr_bias + batch.feature @ ldr_weight
+                ones_features = torch.cat((torch.ones(batch.feature.shape[0], 1), batch.feature), dim=1)
+
+                bsz = batch.feature.shape[0]
+                for b in range(bsz):
+                    one_feature = ones_features[b]
+                    ineq_part2 = torch.einsum('d,ndm->nm', one_feature, S_scale)
+                    ineq_part2 = torch.einsum('nm,m->n', ineq_part2, one_feature)
+
+
+
+                feature_num = batch.feature.shape[1] + 1
+                ineq_var_num = args.x_nneg_num
+                ineq_part = torch.zeros((bsz, ineq_var_num))
+                for b in range(bsz):
+                    for i in range(ineq_var_num):
+                        ineq_part[b, i] = ones_features[b, :] @ S_scale[i, :, :] @ ones_features[b, :]
+
+                x_LDR = torch.cat((eq_part, ineq_part), dim=1)
+
+                eq_residual = (A_sp @ x_LDR.flatten() - batch.b.flatten()).view(-1, batch.b.shape[-1])
+                ineq_residual = torch.relu(-x_LDR[:, problem.nonnegative_mask])
+                eq_violation = torch.norm(eq_residual, p=2, dim=-1)
+                ineq_violation = torch.norm(ineq_residual, p=2, dim=-1)
+                eq_epsilon = eq_violation / (1 + torch.norm(batch.b, p=2, dim=-1))  # scaled by the norm of b
+                ineq_epsilon = ineq_violation  # no scaling because rhs is 0
+
+
+
+
+
+
+
+
+
+
+
+
+            else:
+                G = None
 
             iters = 0
             x_LDR = ldr_bias + batch.feature @ ldr_weight
