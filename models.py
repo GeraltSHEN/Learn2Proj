@@ -282,7 +282,7 @@ class LDRPMLHS(nn.Module):
     def update_ldr_ref(self, features):
         with torch.no_grad():
             eq_part = self.ldr_bias + features @ self.ldr_weight
-            ones_features = torch.cat((torch.ones(features.shape[0], 1, device=self.deice), features), dim=1)
+            ones_features = torch.cat((torch.ones(features.shape[0], 1, device=self.device), features), dim=1)
             ineq_part = torch.einsum('bd,ndm->bnm', ones_features, self.S_scale)
             ineq_part = torch.einsum('bnm,bm->bn', ineq_part, ones_features)
             self.x_LDR = torch.cat((eq_part, ineq_part), dim=1)
